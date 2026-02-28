@@ -8,7 +8,14 @@ defmodule Loom.Telemetry.Metrics do
   - Message count
   - Tool call count and durations
   - Model usage breakdown
+
+  Also handles team/agent-scoped events:
+  - Team LLM request tracking (routed to CostTracker)
+  - Model escalation events
+  - Budget warning broadcasts
   """
+
+  alias Loom.Teams.CostTracker
 
   use GenServer
 
@@ -52,6 +59,16 @@ defmodule Loom.Telemetry.Metrics do
     end
   end
 
+  @doc "Get per-agent usage breakdown for a team. Delegates to CostTracker."
+  def team_metrics(team_id) do
+    CostTracker.get_team_usage(team_id)
+  end
+
+  @doc "Get usage metrics for a specific agent within a team. Delegates to CostTracker."
+  def agent_metrics(team_id, agent_name) do
+    CostTracker.get_agent_usage(team_id, agent_name)
+  end
+
   @doc "Get all session summaries for the dashboard."
   def all_sessions do
     # Use match pattern to select only {:session, _} keys
@@ -73,6 +90,50 @@ defmodule Loom.Telemetry.Metrics do
     attach_handlers()
 
     {:ok, %{table: table}}
+  end
+
+  @impl true
+  def handle_cast({:update_session, session_id, fun}, state) do
+    key = {:session, session_id}
+
+    current =
+      case :ets.lookup(@table, key) do
+        [{_, m}] -> m
+        [] -> default_session_metrics()
+      end
+
+    :ets.insert(@table, {key, fun.(current)})
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:update_global, fun}, state) do
+    current =
+      case :ets.lookup(@table, :global) do
+        [{_, g}] -> g
+        [] -> default_global_metrics()
+      end
+
+    :ets.insert(@table, {:global, fun.(current)})
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:update_map, map_key, entry_key, fun, default}, state) do
+    current_map =
+      case :ets.lookup(@table, map_key) do
+        [{_, m}] -> m
+        [] -> %{}
+      end
+
+    new_value =
+      case Map.get(current_map, entry_key) do
+        nil -> default
+        existing -> fun.(existing)
+      end
+
+    :ets.insert(@table, {map_key, Map.put(current_map, entry_key, new_value)})
+    {:noreply, state}
   end
 
   defp attach_handlers do
@@ -101,6 +162,27 @@ defmodule Loom.Telemetry.Metrics do
       "loom-metrics-decision-logged",
       [:loom, :decision, :logged],
       &__MODULE__.handle_decision_logged/4,
+      nil
+    )
+
+    :telemetry.attach(
+      "loom-metrics-team-llm-stop",
+      [:loom, :team, :llm, :request, :stop],
+      &__MODULE__.handle_team_llm_stop/4,
+      nil
+    )
+
+    :telemetry.attach(
+      "loom-metrics-team-escalation",
+      [:loom, :team, :escalation],
+      &__MODULE__.handle_team_escalation/4,
+      nil
+    )
+
+    :telemetry.attach(
+      "loom-metrics-team-budget-warning",
+      [:loom, :team, :budget, :warning],
+      &__MODULE__.handle_team_budget_warning/4,
       nil
     )
   end
@@ -193,46 +275,74 @@ defmodule Loom.Telemetry.Metrics do
     end)
   end
 
+  # --- Team/Agent Telemetry Handlers ---
+
+  def handle_team_llm_stop(_event, _measurements, metadata, _config) do
+    team_id = metadata[:team_id]
+    agent_name = metadata[:agent_name]
+    model = metadata[:model]
+    input_tokens = metadata[:input_tokens] || 0
+    output_tokens = metadata[:output_tokens] || 0
+    cost = metadata[:cost] || 0
+
+    # NOTE: CostTracker.record_usage is called directly in Agent.track_usage/2.
+    # This handler only broadcasts for LiveView dashboards — no double-counting.
+
+    broadcast_team(team_id, {:team_llm_stop, %{
+      team_id: team_id,
+      agent_name: agent_name,
+      model: model,
+      input_tokens: input_tokens,
+      output_tokens: output_tokens,
+      cost: cost
+    }})
+  end
+
+  def handle_team_escalation(_event, _measurements, metadata, _config) do
+    team_id = metadata[:team_id]
+    agent_name = metadata[:agent_name]
+    from_model = metadata[:from_model]
+    to_model = metadata[:to_model]
+
+    # NOTE: CostTracker.record_escalation is called directly in Agent.attempt_escalation/2.
+    # This handler only broadcasts for LiveView dashboards — no double-counting.
+
+    broadcast_team(team_id, {:team_escalation, %{
+      team_id: team_id,
+      agent_name: agent_name,
+      from_model: from_model,
+      to_model: to_model
+    }})
+  end
+
+  def handle_team_budget_warning(_event, _measurements, metadata, _config) do
+    team_id = metadata[:team_id]
+    spent = metadata[:spent]
+    limit = metadata[:limit]
+    threshold = metadata[:threshold]
+
+    broadcast_team(team_id, {:team_budget_warning, %{
+      team_id: team_id,
+      spent: spent,
+      limit: limit,
+      threshold: threshold
+    }})
+  end
+
   # --- Internal helpers ---
 
   defp update_session(nil, _fun), do: :ok
 
   defp update_session(session_id, fun) do
-    key = {:session, session_id}
-
-    current =
-      case :ets.lookup(@table, key) do
-        [{_, m}] -> m
-        [] -> default_session_metrics()
-      end
-
-    :ets.insert(@table, {key, fun.(current)})
+    GenServer.cast(__MODULE__, {:update_session, session_id, fun})
   end
 
   defp update_global(fun) do
-    current =
-      case :ets.lookup(@table, :global) do
-        [{_, g}] -> g
-        [] -> default_global_metrics()
-      end
-
-    :ets.insert(@table, {:global, fun.(current)})
+    GenServer.cast(__MODULE__, {:update_global, fun})
   end
 
   defp update_map(map_key, entry_key, fun, default) do
-    current_map =
-      case :ets.lookup(@table, map_key) do
-        [{_, m}] -> m
-        [] -> %{}
-      end
-
-    new_value =
-      case Map.get(current_map, entry_key) do
-        nil -> default
-        existing -> fun.(existing)
-      end
-
-    :ets.insert(@table, {map_key, Map.put(current_map, entry_key, new_value)})
+    GenServer.cast(__MODULE__, {:update_map, map_key, entry_key, fun, default})
   end
 
   defp default_session_metrics do
@@ -259,6 +369,12 @@ defmodule Loom.Telemetry.Metrics do
 
   defp broadcast_update do
     Phoenix.PubSub.broadcast(Loom.PubSub, "telemetry:updates", :metrics_updated)
+  rescue
+    _ -> :ok
+  end
+
+  defp broadcast_team(team_id, event) do
+    Phoenix.PubSub.broadcast(Loom.PubSub, "telemetry:team:#{team_id}", event)
   rescue
     _ -> :ok
   end

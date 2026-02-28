@@ -11,7 +11,7 @@ Loom reads your codebase, proposes edits, runs commands, and commits changes —
 Built on the [Jido](https://github.com/agentjido/jido) agent ecosystem and powered by [req_llm](https://github.com/agentjido/req_llm) for multi-provider LLM access, Loom treats AI coding assistance as a proper OTP application — supervised, fault-tolerant, and concurrent by design.
 
 <p align="center">
-  <img src="assets/loom-example.png" alt="Loom example session — fixing a failing test" width="700">
+  <img src="assets/loom-example.jpg" alt="Loom example session — fixing a failing test" width="700">
 </p>
 
 ---
@@ -60,25 +60,37 @@ end
 │  │  └── Permission Manager (per-tool approval)        │  │
 │  └────────────────────────────────────────────────────┘  │
 ├──────────────────────────────────────────────────────────┤
-│  Tool Layer (11 Jido Actions)                            │
+│  Tool Layer (12 Jido Actions)                            │
 │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌──────────────┐   │
 │  │FileRead │ │FileWrite│ │FileEdit │ │ FileSearch   │   │
 │  ├─────────┤ ├─────────┤ ├─────────┤ ├──────────────┤   │
 │  │  Shell  │ │   Git   │ │SubAgent │ │ContentSearch │   │
-│  ├─────────┤ ├─────────┤ ├─────────┴─┴──────────────┤   │
-│  │DecisionLog│DecisionQuery│  DirectoryList          │   │
-│  └─────────┘ └─────────┘ └──────────────────────────┘   │
+│  ├─────────┤ ├─────────┤ ├─────────┤ ├──────────────┤   │
+│  │DecisionLog│DecisionQuery│DirList │ │LspDiagnostics│   │
+│  └─────────┘ └─────────┘ └────────┘ └──────────────┘   │
 ├──────────────────────────────────────────────────────────┤
 │  Intelligence Layer                                      │
 │  ┌──────────────┐ ┌──────────────┐ ┌─────────────────┐  │
 │  │Decision Graph│ │  Repo Intel  │ │ Context Window  │  │
 │  │ (7 node types│ │ (ETS index,  │ │ (token budget,  │  │
-│  │  DAG in      │ │  symbol map, │ │  summarization, │  │
-│  │  SQLite)     │ │  relevance)  │ │  compaction)    │  │
+│  │  DAG in      │ │  tree-sitter │ │  summarization, │  │
+│  │  SQLite)     │ │  + file      │ │  compaction)    │  │
+│  │              │ │  watcher)    │ │                 │  │
+│  └──────────────┘ └──────────────┘ └─────────────────┘  │
+├──────────────────────────────────────────────────────────┤
+│  Protocol Layer                                          │
+│  ┌──────────────┐ ┌──────────────┐ ┌─────────────────┐  │
+│  │  MCP Server  │ │  MCP Client  │ │   LSP Client    │  │
+│  │ (expose tools│ │ (consume     │ │ (diagnostics    │  │
+│  │  to editors) │ │  ext. tools) │ │  from lang      │  │
+│  │              │ │              │ │  servers)       │  │
 │  └──────────────┘ └──────────────┘ └─────────────────┘  │
 ├──────────────────────────────────────────────────────────┤
 │  LLM Layer: req_llm (16+ providers, 665+ models)        │
 │  Anthropic │ OpenAI │ Google │ Groq │ xAI │ Bedrock │…  │
+├──────────────────────────────────────────────────────────┤
+│  Telemetry + Observability                               │
+│  Event emission │ ETS metrics │ Cost dashboard (/dash)   │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -111,15 +123,14 @@ The Jido ecosystem saves thousands of lines of code and provides battle-tested i
 
 ## Features
 
-### What Works Today (Phases 1-3)
+### Core (Phases 1-3)
 
 - **Interactive CLI** — REPL-style interface with streaming output, colored diffs, markdown rendering
 - **Phoenix LiveView web UI** — real-time streaming chat, file tree browser, unified diff viewer, interactive SVG decision graph, model selector, session switcher, tool permission modal, terminal output viewer — all without writing JavaScript
 - **PubSub real-time events** — session status, new messages, tool execution start/complete broadcast over Phoenix PubSub to all connected clients
-- **11 built-in tools** — file read/write/edit, glob search, regex search, directory listing, shell execution, git operations, decision logging/querying, sub-agent search
+- **12 built-in tools** — file read/write/edit, glob search, regex search, directory listing, shell execution, git operations, LSP diagnostics, decision logging/querying, sub-agent search
 - **Multi-provider LLM support** — Anthropic, OpenAI, Google, Groq, xAI, and more via req_llm
-- **Decision graph** — persistent reasoning memory with 7 node types and typed relationships, now with an interactive SVG visualization in the web UI
-- **Repo intelligence** — ETS-backed file index, regex symbol extraction, relevance-ranked context packing
+- **Decision graph** — persistent reasoning memory with 7 node types and typed relationships, with interactive SVG visualization in the web UI
 - **Token-aware context window** — automatic budget allocation across system prompt, decision context, repo map, conversation history, and tool definitions
 - **Session persistence** — save/resume conversations with full history in SQLite
 - **Permission system** — per-tool, per-path approval with session-scoped grants
@@ -127,41 +138,50 @@ The Jido ecosystem saves thousands of lines of code and provides battle-tested i
 - **Project rules** — `LOOM.md` files for per-project instructions and tool permissions
 - **Configurable** — `.loom.toml` for model selection, context budgets, permission presets
 
-### What's Coming (Phase 4+)
+### Production Polish (Phase 4)
 
-- **MCP protocol** (via [jido_mcp](https://github.com/agentjido/jido_mcp)) — expose Loom tools to VS Code, Cursor, and other MCP-capable editors, and consume external tool servers
-- **Tree-sitter repo map** — NIF-based symbol extraction with PageRank ranking (like Aider)
-- **Architect/Editor mode** — two-model workflow where a strong model plans and a fast model executes
-- **LSP diagnostics** — pull compiler errors and warnings directly into the agent context
-- **File watcher** — auto-refresh the repo index when files change on disk
-- **Agent swarms** — multi-agent coordination with OTP message passing and shared decision graphs
+- **MCP server** — expose all 12 Loom tools to VS Code, Cursor, Zed, and other MCP-capable editors via [jido_mcp](https://github.com/agentjido/jido_mcp)
+- **MCP client** — connect to external MCP servers (Tidewave, HexDocs, etc.), auto-discover tools, and make them available to the agent alongside built-in tools
+- **LSP client** — JSON-RPC stdio client that connects to language servers (ElixirLS, next-ls) and surfaces compiler errors/warnings via the `lsp_diagnostics` tool
+- **Tree-sitter repo map** — Port-based tree-sitter integration with enhanced regex fallback. Extracts 15+ symbol types across 7 languages (Elixir, JS/TS, Python, Ruby, Go, Rust) with ETS caching
+- **Architect/Editor mode** — two-model workflow where a strong model (e.g. claude-opus) plans edits and a fast model (e.g. claude-haiku) executes them. Toggle via `/architect` in CLI or the web UI
+- **File watcher** — OS-native file watching via `file_system` with 200ms debounce, `.gitignore` filtering, and automatic ETS index + repo map cache refresh. Broadcasts changes to LiveView in real-time
+- **Telemetry + cost dashboard** — full instrumentation across LLM calls, tool execution, and message persistence. ETS-backed real-time metrics. LiveView dashboard at `/dashboard` with per-session costs, model usage breakdown, and tool execution frequency
+- **Single binary packaging** — [Burrito](https://github.com/burrito-elixir/burrito) wraps the BEAM into a self-extracting binary for macOS (aarch64/x86_64) and Linux (x86_64/aarch64). Auto-migrates on startup, stores data at `~/.loom/`
+
+### Agent Teams (Phase 5 — Active Development)
+
+- **OTP-native agent teams** — each agent is a GenServer under a DynamicSupervisor. Agents communicate through Phoenix PubSub in real-time — direct messages, team-wide broadcasts, context updates. No files, no polling, sub-millisecond latency.
+- **Zero-loss context mesh** — agents offload context to lightweight Keeper processes instead of summarizing it away. Nothing is ever destroyed — any agent can retrieve the full conversation from any other agent's history.
+- **Role-based agents** — lead, researcher, coder, reviewer, tester. Each role has scoped tools and a tailored system prompt, but all use the same user-configured model. The swarm's collective intelligence compensates for individual capability.
+- **Region-level file locking** — multiple agents can safely edit the same file by claiming specific line ranges or symbols. Intent broadcasting lets peers coordinate before editing.
+- **Peer review protocol** — agents request code reviews from each other. Critical paths can require review before edits are applied.
+- **Task coordination** — agents create tasks, propose plan revisions, and discover work that needs doing. Plans evolve as the team learns.
+- **Per-team budget tracking** — token bucket rate limiting per provider, per-team and per-agent spend tracking with configurable limits.
+- **Async agent loops** — LLM calls run as `Task.async`, so agents stay responsive to messages even while waiting for model responses. Urgent messages (budget exceeded, file conflicts) can interrupt in-flight work.
 
 ---
 
-## Looking Ahead: Agent Swarms on the BEAM
+## Why Agent Teams Belong on the BEAM
 
-Here's where it gets interesting.
+Most multi-agent AI systems bolt coordination onto single-threaded runtimes using message queues, file-based communication, or HTTP polling. Loom doesn't need any of that — the BEAM virtual machine was literally built for this.
 
-The BEAM was built for running millions of lightweight, isolated, communicating processes. That's exactly what an AI agent swarm is. The patterns emerging in tools like Claude Code's teams feature — where a lead agent spawns specialized workers, coordinates via message passing, tracks tasks with dependencies, and gracefully shuts down completed agents — that's just OTP.
+**Every agent is a GenServer.** Spawning an agent is `DynamicSupervisor.start_child/2`. It takes milliseconds, not seconds. An agent crashing doesn't take down the team — OTP supervisors restart it with its last known state. This is the same infrastructure that keeps telecom switches running for decades.
 
-Loom is architected from the ground up to support this:
+**Communication is native message passing.** Agents talk to each other through Phoenix PubSub — direct messages, team-wide broadcasts, context updates, task assignments. No serialization overhead, no network hops, no message broker to maintain. A PubSub broadcast reaches every agent in under a millisecond.
 
-- **DynamicSupervisor** already manages session processes. Spawning a "team" of agents is spawning more sessions under the same supervisor.
-- **Registry** provides process discovery. Agents find each other by name, not by PID.
-- **GenServer message passing** is the native communication primitive. No Redis pub/sub, no HTTP polling, no message broker.
-- **Task.async_stream** enables parallel tool execution across agents with backpressure.
-- **Monitors and links** handle the "what if an agent crashes?" problem that every other framework handles with retry loops and health checks.
+**Context never gets destroyed.** This is the big one. Every other AI coding tool summarizes or compacts conversation history as it grows, permanently losing information. Loom agents offload context to lightweight Keeper processes — GenServers that hold conversation chunks at full fidelity. Any agent can query any keeper to retrieve exactly what was said 200 messages ago. The context mesh means the team's collective memory grows with the task instead of shrinking.
 
-Imagine asking Loom to refactor a module and having it automatically:
-1. Spawn a **researcher** agent to analyze usage patterns across the codebase
-2. Spawn an **architect** agent to design the new interface
-3. Spawn an **implementer** agent to write the code
-4. Spawn a **tester** agent to verify nothing broke
-5. Coordinate all four through OTP message passing, with the decision graph tracking every choice
+**Cheap models, collective intelligence.** A swarm of affordable models (like GLM-5 at ~$0.95/M tokens) communicating fluidly through OTP can outperform a single expensive model working alone. When every agent has access to the team's shared knowledge, peer review, and real-time coordination, individual model capability matters less than collective capability. The same task that costs $5 with a single Opus call can cost $0.50 with a coordinated team.
 
-This isn't speculative. The primitives are already here in the BEAM. Jido's agent lifecycle and signal system provide the framework. Loom's decision graph provides the shared memory. The LiveView UI can visualize the entire swarm in real-time.
+Ask Loom to refactor a module and it automatically:
+1. Spawns **researchers** to analyze usage patterns across the codebase
+2. Spawns **coders** that claim specific file regions and implement changes in parallel
+3. Spawns a **reviewer** that checks every edit before it's applied
+4. Coordinates all of them through PubSub, with the decision graph tracking every choice
+5. Any agent can ask the team a question, create new tasks, or propose plan revisions
 
-Multi-agent coding isn't a feature to bolt on later. On the BEAM, it's the natural evolution.
+This isn't a roadmap — the OTP infrastructure, agent communication, task coordination, and context mesh are built and working.
 
 ---
 
@@ -205,6 +225,8 @@ Optionally create a `.loom.toml` in your project root:
 [model]
 default = "anthropic:claude-sonnet-4-6"
 weak = "anthropic:claude-haiku-4-5"
+architect = "anthropic:claude-opus-4-6"   # strong model for architect mode planning
+editor = "anthropic:claude-haiku-4-5"      # fast model for architect mode execution
 
 [permissions]
 auto_approve = ["file_read", "file_search", "content_search", "directory_list"]
@@ -213,6 +235,22 @@ auto_approve = ["file_read", "file_search", "content_search", "directory_list"]
 max_repo_map_tokens = 2048
 max_decision_context_tokens = 1024
 reserved_output_tokens = 4096
+
+[mcp]
+server_enabled = true                      # expose Loom tools via MCP
+servers = [                                # external MCP servers to connect to
+  { name = "tidewave", command = "mix", args = ["tidewave.server"] },
+  { name = "hexdocs", url = "http://localhost:3001/sse" }
+]
+
+[lsp]
+enabled = true
+servers = [
+  { name = "elixir-ls", command = "elixir-ls", args = [] }
+]
+
+[repo]
+watch_enabled = true                       # auto-refresh index on file changes
 ```
 
 ### Run
@@ -241,6 +279,7 @@ mix phx.server
 |---------|-------------|
 | `/help` | Show available commands |
 | `/model <name>` | Switch LLM model mid-session |
+| `/architect` | Toggle architect/editor two-model mode |
 | `/history` | Show conversation history |
 | `/sessions` | List all saved sessions |
 | `/clear` | Clear conversation history |
@@ -285,10 +324,25 @@ loom/
 │   │   │   ├── session.ex          # Core GenServer + PubSub broadcasting
 │   │   │   ├── manager.ex          # Start/stop/find/list sessions
 │   │   │   ├── persistence.ex      # SQLite CRUD for sessions + messages
-│   │   │   └── context_window.ex   # Token budget allocation + compaction
-│   │   ├── tools/                  # 11 Jido.Action tool modules
+│   │   │   ├── context_window.ex   # Token budget allocation + compaction
+│   │   │   └── architect.ex        # Two-model architect/editor workflow
+│   │   ├── agent_loop.ex           # Shared ReAct loop (sessions + team agents)
+│   │   ├── teams/
+│   │   │   ├── supervisor.ex       # Registry + DynamicSupervisor + RateLimiter
+│   │   │   ├── agent.ex            # Agent GenServer (team member runtime)
+│   │   │   ├── manager.ex          # Team lifecycle API (create, spawn, dissolve)
+│   │   │   ├── role.ex             # Role definitions (lead, researcher, coder, reviewer, tester)
+│   │   │   ├── rate_limiter.ex     # Token bucket + per-team/per-agent budget
+│   │   │   ├── comms.ex            # PubSub utilities for team communication
+│   │   │   ├── context.ex          # ETS shared state per team
+│   │   │   ├── context_keeper.ex   # Holds offloaded context at full fidelity
+│   │   │   ├── context_offload.ex  # Topic boundary detection + offloading logic
+│   │   │   ├── context_retrieval.ex # Cross-agent context discovery + retrieval
+│   │   │   ├── tasks.ex            # Task CRUD + scheduling
+│   │   │   └── model_router.ex     # Model selection + opt-in escalation
+│   │   ├── tools/                  # Jido.Action tool modules
 │   │   │   ├── registry.ex         # Tool discovery + Jido.Exec dispatch
-│   │   │   ├── file_read.ex
+│   │   │   ├── file_read.ex        # Core tools (12)
 │   │   │   ├── file_write.ex
 │   │   │   ├── file_edit.ex
 │   │   │   ├── file_search.ex
@@ -296,9 +350,19 @@ loom/
 │   │   │   ├── directory_list.ex
 │   │   │   ├── shell.ex
 │   │   │   ├── git.ex
+│   │   │   ├── lsp_diagnostics.ex
 │   │   │   ├── decision_log.ex
 │   │   │   ├── decision_query.ex
-│   │   │   └── sub_agent.ex
+│   │   │   ├── sub_agent.ex
+│   │   │   ├── team_spawn.ex       # Team lead tools
+│   │   │   ├── team_assign.ex
+│   │   │   ├── team_dissolve.ex
+│   │   │   ├── team_progress.ex
+│   │   │   ├── peer_message.ex     # Peer communication tools
+│   │   │   ├── peer_discovery.ex
+│   │   │   ├── peer_review.ex
+│   │   │   ├── peer_claim_region.ex
+│   │   │   └── peer_create_task.ex
 │   │   ├── decisions/              # Deciduous-inspired decision graph
 │   │   │   ├── graph.ex            # CRUD + queries
 │   │   │   ├── pulse.ex            # Health reports
@@ -307,7 +371,21 @@ loom/
 │   │   ├── repo_intel/             # Repository intelligence
 │   │   │   ├── index.ex            # ETS file catalog
 │   │   │   ├── repo_map.ex         # Symbol extraction + ranking
-│   │   │   └── context_packer.ex   # Tiered context assembly
+│   │   │   ├── tree_sitter.ex      # Tree-sitter + enhanced regex parser (7 langs)
+│   │   │   ├── context_packer.ex   # Tiered context assembly
+│   │   │   └── watcher.ex          # OS-native file watcher with debounce
+│   │   ├── mcp/                    # Model Context Protocol
+│   │   │   ├── server.ex           # Expose tools to editors via MCP
+│   │   │   ├── client.ex           # Consume external MCP tools
+│   │   │   └── client_supervisor.ex
+│   │   ├── lsp/                    # Language Server Protocol
+│   │   │   ├── client.ex           # JSON-RPC stdio LSP client
+│   │   │   ├── protocol.ex         # LSP message encoding/decoding
+│   │   │   └── supervisor.ex       # LSP process supervision
+│   │   ├── telemetry.ex            # Event emission helpers
+│   │   ├── telemetry/
+│   │   │   └── metrics.ex          # ETS-backed real-time metrics
+│   │   ├── release.ex              # Release tasks (migrate, create_db)
 │   │   ├── permissions/            # Tool permission system
 │   │   │   ├── manager.ex
 │   │   │   └── prompt.ex
@@ -331,7 +409,8 @@ loom/
 │   │       ├── model_selector_component.ex # Multi-provider model picker
 │   │       ├── session_switcher_component.ex # Session management
 │   │       ├── permission_component.ex   # Tool approval modal
-│   │       └── terminal_component.ex     # Shell output renderer
+│   │       ├── terminal_component.ex     # Shell output renderer
+│   │       └── cost_dashboard_live.ex    # Telemetry + cost dashboard
 │   └── loom_cli/                   # CLI interface
 │       ├── main.ex                 # Escript entry point
 │       ├── interactive.ex          # REPL loop
@@ -341,12 +420,12 @@ loom/
 │   ├── css/app.css                 # Tailwind dark theme
 │   └── tailwind.config.js          # Tailwind configuration
 ├── priv/repo/migrations/           # SQLite migrations
-├── test/                           # 226 tests across 27 files
+├── test/                           # 335 tests across 40 files
 ├── config/                         # Dev/test/prod/runtime config
 └── docs/                           # Architecture + migration docs
 ```
 
-**56 source files. ~6,100 LOC application code. ~2,600 LOC tests.**
+**~100 source files. ~15,000 LOC application code. ~6,000 LOC tests.**
 
 ---
 
@@ -422,7 +501,7 @@ Visit `/dashboard` in the web UI to see real-time telemetry:
 
 ## Contributing
 
-Loom is in active development (Phase 4). Contributions welcome.
+Loom is in active development. Contributions welcome.
 
 ```bash
 # Run tests

@@ -89,7 +89,30 @@ defmodule Loom.LSP.Client do
       status: :idle
     }
 
-    {:ok, state}
+    if root_path = Keyword.get(opts, :root_path) do
+      {:ok, Map.put(state, :root_uri, nil), {:continue, {:auto_initialize, root_path}}}
+    else
+      {:ok, state}
+    end
+  end
+
+  @impl true
+  def handle_continue({:auto_initialize, root_path}, state) do
+    case start_server(state) do
+      {:ok, port} ->
+        root_uri = Protocol.path_to_uri(root_path)
+        {id, state} = next_id(%{state | port: port, root_uri: root_uri, status: :starting})
+
+        params = Protocol.initialize_params(root_uri)
+        send_request(port, id, "initialize", params)
+
+        state = %{state | pending_requests: Map.put(state.pending_requests, id, {:initialize, nil})}
+        {:noreply, state}
+
+      {:error, reason} ->
+        Logger.warning("[LSP:#{state.name}] Auto-initialize failed: #{inspect(reason)}")
+        {:noreply, state}
+    end
   end
 
   @impl true
@@ -175,7 +198,7 @@ defmodule Loom.LSP.Client do
 
     # Reply to any pending requests with error
     Enum.each(state.pending_requests, fn {_id, {_type, from}} ->
-      GenServer.reply(from, {:error, :server_exited})
+      if from, do: GenServer.reply(from, {:error, :server_exited})
     end)
 
     {:noreply, %{state | port: nil, status: :stopped, initialized: false, pending_requests: %{}}}
@@ -269,7 +292,8 @@ defmodule Loom.LSP.Client do
       {{:initialize, from}, pending} ->
         # Send initialized notification
         send_notification(state.port, "initialized", %{})
-        GenServer.reply(from, {:ok, msg["result"]})
+        if from, do: GenServer.reply(from, {:ok, msg["result"]})
+        Logger.info("[LSP:#{state.name}] Initialized successfully")
 
         %{state | pending_requests: pending, initialized: true, status: :ready}
 
@@ -314,7 +338,7 @@ defmodule Loom.LSP.Client do
   defp handle_lsp_message(%{:type => :error_response, "id" => id, "error" => error}, state) do
     case Map.pop(state.pending_requests, id) do
       {{_type, from}, pending} ->
-        GenServer.reply(from, {:error, error})
+        if from, do: GenServer.reply(from, {:error, error})
         %{state | pending_requests: pending}
 
       {nil, _} ->

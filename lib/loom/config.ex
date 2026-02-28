@@ -102,6 +102,14 @@ defmodule Loom.Config do
       end
 
     store_config(config)
+    :ets.insert(@table, {:project_path, project_path})
+
+    Phoenix.PubSub.broadcast(
+      Loom.PubSub,
+      "loom:system",
+      {:config_loaded, Map.put(config, :project_path, project_path)}
+    )
+
     {:reply, :ok, state}
   end
 
@@ -122,25 +130,22 @@ defmodule Loom.Config do
   @known_keys ~w(model permissions context decisions mcp web lsp repo
     default weak architect editor auto_approve max_repo_map_tokens max_decision_context_tokens
     reserved_output_tokens enabled enforce_pre_edit auto_log_commits
-    servers name command args url port server_enabled watch_enabled)a
+    servers name command args url port server_enabled watch_enabled
+    teams budget max_per_team_usd max_per_agent_usd max_per_agent_tokens provider_limits
+    models grunt standard expert architect escalation)a
+
+  # Pre-compute a string→atom lookup map so atomize_keys never raises
+  @known_key_map Map.new(@known_keys, fn atom -> {Atom.to_string(atom), atom} end)
 
   defp atomize_keys(map) when is_map(map) do
     Map.new(map, fn
       {key, value} when is_binary(key) ->
-        atom_key =
-          if String.to_existing_atom(key) in @known_keys do
-            String.to_existing_atom(key)
-          else
-            key
-          end
-
+        atom_key = Map.get(@known_key_map, key, key)
         {atom_key, atomize_keys(value)}
 
       {key, value} ->
         {key, atomize_keys(value)}
     end)
-  rescue
-    ArgumentError -> Map.new(map, fn {k, v} -> {k, atomize_keys(v)} end)
   end
 
   defp atomize_keys(list) when is_list(list), do: Enum.map(list, &atomize_keys/1)
