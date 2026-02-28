@@ -17,6 +17,7 @@ defmodule LoomWeb.WorkspaceLive do
         mode: :normal,
         input_text: "",
         current_tool: nil,
+        current_tool_name: nil,
         selected_file: nil,
         file_content: nil,
         diffs: [],
@@ -221,7 +222,7 @@ defmodule LoomWeb.WorkspaceLive do
     {:noreply, assign(socket, permission_request: nil)}
   end
 
-  # Team PubSub events — forward to team components via send_update
+  # Team PubSub events -- forward to team components via send_update
   def handle_info({:agent_status, _agent_name, _status}, socket) do
     if socket.assigns[:team_id] do
       send_update(LoomWeb.TeamDashboardComponent, id: "team-dashboard", team_id: socket.assigns.team_id)
@@ -277,6 +278,7 @@ defmodule LoomWeb.WorkspaceLive do
   def render(assigns) do
     ~H"""
     <div class="flex flex-col h-screen bg-gray-950 text-gray-100">
+      <%!-- Permission modal overlay --%>
       <.live_component
         :if={@permission_request}
         module={LoomWeb.PermissionComponent}
@@ -284,29 +286,65 @@ defmodule LoomWeb.WorkspaceLive do
         tool_name={@permission_request.tool_name}
         tool_path={@permission_request.tool_path}
       />
-      <header class="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-800">
-        <div class="flex items-center gap-3">
-          <span class="text-lg font-semibold text-indigo-400">Loom</span>
+
+      <%!-- ── Header ── --%>
+      <header class="flex items-center justify-between px-6 py-3 bg-gray-900 border-b border-gray-800 header-glow">
+        <div class="flex items-center gap-4">
+          <%!-- Branding --%>
+          <div class="flex items-center gap-2">
+            <span class="text-base opacity-70">&#129525;</span>
+            <span class="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent tracking-tight">
+              Loom
+            </span>
+          </div>
+
+          <%!-- Model selector --%>
           <.live_component module={LoomWeb.ModelSelectorComponent} id="model-selector" model={@model} />
-          <button
-            phx-click="toggle_mode"
-            class={"text-xs px-2 py-1 rounded font-medium transition #{if @mode == :architect, do: "bg-purple-900/50 text-purple-400 ring-1 ring-purple-500/50", else: "bg-gray-800 text-gray-500 hover:text-gray-300"}"}
-          >
-            {if @mode == :architect, do: "Architect", else: "Normal"}
-          </button>
+
+          <%!-- Mode toggle: segmented pill --%>
+          <div class="relative flex items-center bg-gray-800/80 rounded-full p-0.5">
+            <button
+              phx-click="toggle_mode"
+              class={"relative z-10 text-xs px-3 py-1 rounded-full font-medium transition-colors duration-200 " <>
+                if(@mode == :normal, do: "bg-indigo-600/80 text-white", else: "text-gray-400 hover:text-gray-300")}
+            >
+              Normal
+            </button>
+            <button
+              phx-click="toggle_mode"
+              class={"relative z-10 text-xs px-3 py-1 rounded-full font-medium transition-colors duration-200 " <>
+                if(@mode == :architect, do: "bg-indigo-600/80 text-white", else: "text-gray-400 hover:text-gray-300")}
+            >
+              Architect
+            </button>
+          </div>
         </div>
+
         <div class="flex items-center gap-3">
-          <a href="/dashboard" class="text-xs text-gray-500 hover:text-indigo-400 px-2 py-1 rounded bg-gray-800/50">
-            ${format_cost(@session_cost)} / {format_tokens(@session_tokens)} tok
+          <%!-- Cost pill --%>
+          <a
+            href="/dashboard"
+            class="flex items-center gap-1.5 bg-gray-800/60 hover:bg-gray-800 rounded-full px-3 py-1.5 transition-colors group"
+          >
+            <.icon name="hero-sparkles-mini" class="w-3.5 h-3.5 text-indigo-400 group-hover:text-indigo-300" />
+            <span class="text-xs font-mono text-gray-300">${format_cost(@session_cost)}</span>
+            <span class="text-[10px] text-gray-500 font-mono">{format_tokens(@session_tokens)} tok</span>
           </a>
+
+          <%!-- Session switcher --%>
           <.live_component module={LoomWeb.SessionSwitcherComponent} id="session-switcher" session_id={@session_id} />
-          <span class={"text-xs px-2 py-1 rounded #{status_class(@status)}"}>
-            {status_label(@status)}
-          </span>
+
+          <%!-- Status indicator --%>
+          <div class={"flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-300 " <> status_pill_class(@status)}>
+            <span class={status_dot_class(@status)} />
+            {status_label(@status, @current_tool_name)}
+          </div>
         </div>
       </header>
 
+      <%!-- ── Main Content ── --%>
       <div class="flex flex-1 overflow-hidden">
+        <%!-- Left: Chat + Input --%>
         <div class="flex-1 flex flex-col min-w-0">
           <.live_component
             module={LoomWeb.ChatComponent}
@@ -316,39 +354,57 @@ defmodule LoomWeb.WorkspaceLive do
             current_tool={@current_tool}
           />
 
-          <form phx-submit="send_message" class="p-3 border-t border-gray-800 bg-gray-900">
-            <div class="flex gap-2">
-              <textarea
-                name="text"
-                rows="2"
-                placeholder="Ask Loom..."
-                class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 resize-none focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                phx-hook="ShiftEnterSubmit"
-                id="message-input"
-              ><%= @input_text %></textarea>
+          <%!-- Input area --%>
+          <form phx-submit="send_message" class="p-4 border-t border-gray-800 bg-gray-900/80">
+            <div class="flex gap-3 items-end">
+              <div class="flex-1 relative">
+                <textarea
+                  name="text"
+                  rows="1"
+                  placeholder="What should we work on?"
+                  class="w-full bg-gray-800/60 border border-gray-700/50 rounded-xl px-4 py-3 text-sm text-gray-100 resize-none placeholder-gray-500 placeholder:italic focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/50 transition-shadow"
+                  phx-hook="ShiftEnterSubmit"
+                  id="message-input"
+                ><%= @input_text %></textarea>
+              </div>
               <button
                 type="submit"
-                class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+                class={"flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-200 " <>
+                  if(@status == :idle, do: "bg-indigo-600 hover:bg-indigo-500 text-white send-btn-ready", else: "bg-gray-800 text-gray-600 cursor-not-allowed")}
                 disabled={@status != :idle}
               >
-                Send
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+                </svg>
               </button>
             </div>
+            <p class="text-[10px] text-gray-600 mt-1.5 pl-1">
+              <kbd class="px-1 py-0.5 bg-gray-800/60 rounded text-gray-500 font-mono text-[9px]">Shift+Enter</kbd>
+              for new line
+            </p>
           </form>
         </div>
 
+        <%!-- Right: Sidebar --%>
         <div class="w-96 border-l border-gray-800 flex flex-col bg-gray-900/50">
-          <div class="flex border-b border-gray-800">
+          <%!-- Sidebar tab bar --%>
+          <div class="flex items-center gap-1 px-3 py-2 border-b border-gray-800 bg-gray-900/80">
             <button
               :for={tab <- [:files, :diff, :terminal, :graph] ++ if(@team_id, do: [:team], else: [])}
               phx-click="switch_tab"
               phx-value-tab={tab}
-              class={"px-3 py-2 text-xs font-medium #{if @active_tab == tab, do: "text-indigo-400 border-b-2 border-indigo-400", else: "text-gray-500 hover:text-gray-300"}"}
+              class={"flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 " <>
+                if(@active_tab == tab,
+                  do: "bg-gray-800 text-indigo-400",
+                  else: "text-gray-500 hover:text-gray-300 hover:bg-gray-800/40")}
             >
+              <span class="text-sm">{tab_icon(tab)}</span>
               {tab_label(tab)}
             </button>
           </div>
-          <div class="flex-1 overflow-auto p-3">
+
+          <%!-- Sidebar content with transition --%>
+          <div class="flex-1 overflow-auto p-4 tab-content-enter" phx-hook="TabTransition" id={"tab-content-#{@active_tab}"}>
             {render_tab(@active_tab, assigns)}
           </div>
         </div>
@@ -359,15 +415,27 @@ defmodule LoomWeb.WorkspaceLive do
 
   # --- Helpers ---
 
-  defp status_class(:idle), do: "bg-green-900/50 text-green-400"
-  defp status_class(:thinking), do: "bg-yellow-900/50 text-yellow-400 animate-pulse"
-  defp status_class(:executing_tool), do: "bg-blue-900/50 text-blue-400 animate-pulse"
-  defp status_class(_), do: "bg-gray-800 text-gray-400"
+  defp status_pill_class(:idle), do: "bg-green-900/30 text-green-400"
+  defp status_pill_class(:thinking), do: "bg-indigo-900/30 text-indigo-400"
+  defp status_pill_class(:executing_tool), do: "bg-blue-900/30 text-blue-400"
+  defp status_pill_class(_), do: "bg-gray-800/60 text-gray-400"
 
-  defp status_label(:idle), do: "Ready"
-  defp status_label(:thinking), do: "Thinking..."
-  defp status_label(:executing_tool), do: "Running tool..."
-  defp status_label(status), do: to_string(status)
+  defp status_dot_class(:idle), do: "w-2 h-2 rounded-full bg-green-400 status-dot-idle"
+  defp status_dot_class(:thinking), do: "w-2 h-2 rounded-full bg-indigo-400 status-dot-thinking"
+  defp status_dot_class(:executing_tool), do: "w-2 h-2 rounded-full bg-blue-400 animate-spin"
+  defp status_dot_class(_), do: "w-2 h-2 rounded-full bg-gray-500"
+
+  defp status_label(:idle, _tool), do: "Ready"
+  defp status_label(:thinking, _tool), do: "Thinking..."
+  defp status_label(:executing_tool, nil), do: "Running tool..."
+  defp status_label(:executing_tool, tool_name), do: tool_name
+  defp status_label(status, _tool), do: to_string(status)
+
+  defp tab_icon(:files), do: raw("<span class=\"hero-folder-mini inline-block w-3.5 h-3.5\"></span>")
+  defp tab_icon(:diff), do: raw("<span class=\"hero-code-bracket-mini inline-block w-3.5 h-3.5\"></span>")
+  defp tab_icon(:terminal), do: raw("<span class=\"hero-command-line-mini inline-block w-3.5 h-3.5\"></span>")
+  defp tab_icon(:graph), do: raw("<span class=\"hero-share-mini inline-block w-3.5 h-3.5\"></span>")
+  defp tab_icon(:team), do: raw("<span class=\"hero-user-group-mini inline-block w-3.5 h-3.5\"></span>")
 
   defp tab_label(:files), do: "Files"
   defp tab_label(:diff), do: "Diff"
@@ -386,14 +454,17 @@ defmodule LoomWeb.WorkspaceLive do
           session_id={@session_id}
         />
       </div>
-      <div :if={@selected_file} class="h-1/2 border-t border-gray-800 flex flex-col">
-        <div class="flex items-center justify-between px-3 py-1.5 bg-gray-900/80 border-b border-gray-800">
-          <span class="text-xs text-indigo-400 font-mono truncate">{@selected_file}</span>
+      <div :if={@selected_file} class="h-1/2 border-t border-gray-800 flex flex-col animate-fade-in">
+        <div class="flex items-center justify-between px-3 py-2 bg-gray-900/80 border-b border-gray-800">
+          <div class="flex items-center gap-2 truncate">
+            <.icon name="hero-document-text-mini" class="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
+            <span class="text-xs text-indigo-400 font-mono truncate">{@selected_file}</span>
+          </div>
           <button
             phx-click="deselect_file"
-            class="text-gray-500 hover:text-gray-300 text-xs px-1"
+            class="text-gray-500 hover:text-gray-300 text-xs p-1 rounded hover:bg-gray-800 transition-colors"
           >
-            &times;
+            <.icon name="hero-x-mark-mini" class="w-3.5 h-3.5" />
           </button>
         </div>
         <pre class="flex-1 overflow-auto p-3 text-xs font-mono text-gray-300 whitespace-pre">{@file_content}</pre>
@@ -441,12 +512,15 @@ defmodule LoomWeb.WorkspaceLive do
         team_id={@team_id}
       />
 
-      <div class="flex border-b border-gray-800">
+      <div class="flex items-center gap-1 border-b border-gray-800 pb-1">
         <button
           :for={sub <- [:activity, :cost, :graph]}
           phx-click="switch_sub_tab"
           phx-value-tab={sub}
-          class={"px-3 py-2 text-xs font-medium #{if @team_sub_tab == sub, do: "text-indigo-400 border-b-2 border-indigo-400", else: "text-gray-500 hover:text-gray-300"}"}
+          class={"px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 " <>
+            if(@team_sub_tab == sub,
+              do: "bg-gray-800 text-indigo-400",
+              else: "text-gray-500 hover:text-gray-300 hover:bg-gray-800/40")}
         >
           {team_sub_tab_label(sub)}
         </button>

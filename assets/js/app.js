@@ -46,6 +46,123 @@ Hooks.ScrollToBottom = {
   }
 }
 
+// TabTransition: adds fade-in animation class when tab content appears
+Hooks.TabTransition = {
+  mounted() {
+    this.el.classList.add("tab-content-enter")
+  },
+  updated() {
+    // Re-trigger animation on content change
+    this.el.classList.remove("tab-content-enter")
+    // Force reflow to restart animation
+    void this.el.offsetWidth
+    this.el.classList.add("tab-content-enter")
+  }
+}
+
+// ModelSelector: handles dropdown open/close, click-outside, escape, keyboard nav
+Hooks.ModelSelector = {
+  mounted() {
+    // Close on Escape
+    this._onKeydown = (e) => {
+      if (e.key === "Escape") {
+        this.pushEventTo(this.el, "close_dropdown", {})
+      }
+      // Keyboard navigation within model list
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        const list = this.el.querySelector("#model-list")
+        if (!list) return
+        const items = Array.from(list.querySelectorAll("button[phx-click='select_model']"))
+        if (items.length === 0) return
+
+        e.preventDefault()
+        const focused = list.querySelector("button:focus")
+        let idx = items.indexOf(focused)
+
+        if (e.key === "ArrowDown") {
+          idx = idx < items.length - 1 ? idx + 1 : 0
+        } else {
+          idx = idx > 0 ? idx - 1 : items.length - 1
+        }
+        items[idx].focus()
+      }
+      if (e.key === "Enter") {
+        const list = this.el.querySelector("#model-list")
+        if (!list) return
+        const focused = list.querySelector("button:focus")
+        if (focused) {
+          focused.click()
+        }
+      }
+    }
+    document.addEventListener("keydown", this._onKeydown)
+  },
+  updated() {
+    // Focus search input when dropdown opens
+    const searchInput = this.el.querySelector("#model-search-input")
+    if (searchInput) {
+      requestAnimationFrame(() => searchInput.focus())
+    }
+  },
+  destroyed() {
+    document.removeEventListener("keydown", this._onKeydown)
+  }
+}
+
+// CopyToClipboard: copies data-copy-text content to clipboard, shows brief "Copied!" feedback
+Hooks.CopyToClipboard = {
+  mounted() {
+    this.el.addEventListener("click", (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const text = this.el.getAttribute("data-copy-text") || ""
+      navigator.clipboard.writeText(text).then(() => {
+        this.showCopied()
+      }).catch(() => {
+        // Fallback for older browsers
+        const ta = document.createElement("textarea")
+        ta.value = text
+        ta.style.position = "fixed"
+        ta.style.opacity = "0"
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand("copy")
+        document.body.removeChild(ta)
+        this.showCopied()
+      })
+    })
+  },
+  showCopied() {
+    const originalText = this.el.textContent
+    this.el.textContent = "Copied!"
+    this.el.classList.add("text-emerald-400")
+    setTimeout(() => {
+      this.el.textContent = originalText
+      this.el.classList.remove("text-emerald-400")
+    }, 1500)
+  }
+}
+
+// AutoResizeTextarea: auto-grows textarea as user types
+Hooks.AutoResizeTextarea = {
+  mounted() {
+    this.el.addEventListener("input", () => this.resize())
+    this.resize()
+
+    // Clear and reset on server push
+    this.handleEvent("clear-input", () => {
+      this.el.value = ""
+      this.el.style.height = "auto"
+      this.resize()
+    })
+  },
+  resize() {
+    this.el.style.height = "auto"
+    const maxHeight = 160 // ~6 lines
+    this.el.style.height = Math.min(this.el.scrollHeight, maxHeight) + "px"
+  }
+}
+
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 let liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,

@@ -31,6 +31,28 @@ defmodule LoomWeb.DecisionGraphComponent do
     "#4ade80"
   ]
 
+  # Softer node type colors (reduced saturation ~20%)
+  @node_type_colors %{
+    goal: {"#1a2f4d", "#5b8fd4"},
+    decision: {"#3d351a", "#d4a930"},
+    option: {"#1a3128", "#3dba6e"},
+    action: {"#271c42", "#9366d4"},
+    outcome: {"#1a3232", "#2aada0"},
+    observation: {"#1f2937", "#8896a8"},
+    revisit: {"#33241a", "#e08840"}
+  }
+
+  # Legend display labels
+  @node_type_labels [
+    {:goal, "Goal"},
+    {:decision, "Decision"},
+    {:option, "Option"},
+    {:action, "Action"},
+    {:outcome, "Outcome"},
+    {:observation, "Observation"},
+    {:revisit, "Revisit"}
+  ]
+
   @impl true
   def mount(socket) do
     {:ok,
@@ -132,21 +154,21 @@ defmodule LoomWeb.DecisionGraphComponent do
         }
       </style>
 
-      <div class="px-3 py-2 border-b border-gray-800">
-        <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Decision Graph</h3>
+      <div class="px-3 py-2.5 border-b border-gray-800">
+        <h3 class="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">Decision Graph</h3>
       </div>
 
-      <!-- Agent filter buttons -->
+      <%!-- Agent filter buttons --%>
       <div :if={@agents != []} class="px-3 py-2 border-b border-gray-800 flex flex-wrap gap-1">
         <button
           phx-click="filter_agent"
           phx-value-agent=""
           phx-target={@myself}
           class={[
-            "px-2 py-1 text-xs rounded-full border",
+            "px-2 py-1 text-xs rounded-full border transition-colors duration-200",
             if(@agent_filter == nil,
-              do: "border-blue-400 text-blue-400 bg-blue-400/10",
-              else: "border-gray-600 text-gray-400 hover:border-gray-400"
+              do: "border-indigo-400 text-indigo-400 bg-indigo-400/10",
+              else: "border-gray-700 text-gray-400 hover:border-gray-500"
             )
           ]}
         >
@@ -158,17 +180,17 @@ defmodule LoomWeb.DecisionGraphComponent do
           phx-value-agent={agent}
           phx-target={@myself}
           class={[
-            "px-2 py-1 text-xs rounded-full border flex items-center gap-1",
+            "px-2 py-1 text-xs rounded-full border flex items-center gap-1 transition-colors duration-200",
             if(@agent_filter == agent,
               do: "bg-white/10",
-              else: "hover:border-gray-400"
+              else: "hover:border-gray-500"
             )
           ]}
           style={
             if @agent_filter == agent do
               "border-color: #{agent_color(agent)}; color: #{agent_color(agent)}"
             else
-              "border-color: #4b5563; color: #9ca3af"
+              "border-color: #374151; color: #9ca3af"
             end
           }
         >
@@ -183,13 +205,11 @@ defmodule LoomWeb.DecisionGraphComponent do
       <div class="flex-1 overflow-auto relative">
         <%= if @nodes == [] do %>
           <div class="flex flex-col items-center justify-center h-full px-6 text-center">
-            <div class="w-12 h-12 rounded-full bg-gray-800 flex items-center justify-center mb-3">
-              <svg class="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7" />
-              </svg>
+            <div class="w-12 h-12 rounded-full bg-gray-800/60 flex items-center justify-center mb-3">
+              <.icon name="hero-share" class="w-6 h-6 text-gray-600" />
             </div>
             <p class="text-gray-400 text-sm font-medium mb-1">No decisions recorded yet</p>
-            <p class="text-gray-600 text-xs max-w-xs">
+            <p class="text-gray-600 text-xs max-w-xs leading-relaxed">
               The decision graph tracks goals, decisions, options, and outcomes as your coding session progresses.
             </p>
           </div>
@@ -215,14 +235,14 @@ defmodule LoomWeb.DecisionGraphComponent do
               </marker>
             </defs>
 
-            <!-- Edges -->
+            <%!-- Edges --%>
             <.graph_edge
               :for={edge <- @visible_edges}
               edge={edge}
               positioned={@positioned}
             />
 
-            <!-- Nodes -->
+            <%!-- Nodes --%>
             <.graph_node
               :for={pos <- @positioned}
               pos={pos}
@@ -232,24 +252,36 @@ defmodule LoomWeb.DecisionGraphComponent do
             />
           </svg>
 
-          <!-- Agent legend -->
-          <div :if={@agents != []} class="px-3 py-2 flex flex-wrap gap-2 text-xs text-gray-400">
-            <span class="text-gray-500 mr-1">Agents:</span>
-            <div :for={agent <- @agents} class="flex items-center gap-1">
+          <%!-- Node type legend --%>
+          <div class="px-3 py-2 border-t border-gray-800/50 flex flex-wrap gap-x-3 gap-y-1.5">
+            <span class="text-[10px] text-gray-600 uppercase tracking-wider mr-1">Types:</span>
+            <div :for={{type, label} <- node_type_labels()} class="flex items-center gap-1.5">
+              <span
+                class="inline-block w-2.5 h-2.5 rounded-sm border"
+                style={"background-color: #{node_type_fill(type)}; border-color: #{node_type_stroke(type)}"}
+              />
+              <span class="text-[10px] text-gray-500">{label}</span>
+            </div>
+          </div>
+
+          <%!-- Agent legend --%>
+          <div :if={@agents != []} class="px-3 py-2 border-t border-gray-800/50 flex flex-wrap gap-x-3 gap-y-1.5">
+            <span class="text-[10px] text-gray-600 uppercase tracking-wider mr-1">Agents:</span>
+            <div :for={agent <- @agents} class="flex items-center gap-1.5">
               <span
                 class="inline-block w-2 h-2 rounded-full"
                 style={"background-color: #{agent_color(agent)}"}
               />
-              <span>{agent}</span>
+              <span class="text-[10px] text-gray-500">{agent}</span>
             </div>
           </div>
 
-          <!-- Node detail panel -->
+          <%!-- Node detail panel --%>
           <.node_detail :if={@selected_node} node={@selected_node} edges={@edges} nodes={@nodes} myself={@myself} />
         <% end %>
       </div>
 
-      <div :if={@pulse} class="px-3 py-2 border-t border-gray-800 text-xs text-gray-500">
+      <div :if={@pulse} class="px-3 py-2 border-t border-gray-800 text-[10px] text-gray-600">
         {format_pulse(@pulse)}
       </div>
     </div>
@@ -296,7 +328,7 @@ defmodule LoomWeb.DecisionGraphComponent do
       role="button"
     >
       <title>{@tooltip}</title>
-      <!-- Conflict glow ring -->
+      <%!-- Conflict glow ring --%>
       <rect
         :if={@conflict}
         x={@x - 3}
@@ -339,7 +371,7 @@ defmodule LoomWeb.DecisionGraphComponent do
       >
         {Atom.to_string(@node.node_type)}
       </text>
-      <!-- Agent name label -->
+      <%!-- Agent name label --%>
       <text
         :if={@node.agent_name}
         x={@x + @w / 2}
@@ -350,7 +382,7 @@ defmodule LoomWeb.DecisionGraphComponent do
       >
         {@node.agent_name}
       </text>
-      <!-- Confidence badge -->
+      <%!-- Confidence badge --%>
       <g :if={@node.confidence}>
         <circle
           cx={@x + @w - 8}
@@ -421,24 +453,22 @@ defmodule LoomWeb.DecisionGraphComponent do
     assigns = assign(assigns, :connected_edges, connected_edges)
 
     ~H"""
-    <div class="absolute top-2 right-2 w-72 bg-gray-900 border border-gray-700 rounded-lg shadow-xl z-20 overflow-hidden">
-      <div class="flex items-center justify-between px-3 py-2 border-b border-gray-800">
+    <div class="absolute top-2 right-2 w-72 bg-gray-900 border border-gray-700/50 rounded-xl shadow-2xl z-20 overflow-hidden animate-scale-in">
+      <div class="flex items-center justify-between px-3 py-2.5 border-b border-gray-800 bg-gray-900/80">
         <span class="text-sm font-semibold text-gray-200 truncate">{@node.title}</span>
         <button
           phx-click="close_detail"
           phx-target={@myself}
-          class="text-gray-500 hover:text-gray-300 ml-2"
+          class="text-gray-500 hover:text-gray-300 ml-2 p-0.5 rounded hover:bg-gray-800 transition-colors"
         >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <.icon name="hero-x-mark-mini" class="w-4 h-4" />
         </button>
       </div>
 
-      <div class="px-3 py-2 space-y-2 text-xs max-h-64 overflow-y-auto">
+      <div class="px-3 py-3 space-y-2.5 text-xs max-h-64 overflow-y-auto">
         <div class="flex gap-2">
           <span class="text-gray-500">Type:</span>
-          <span class="text-gray-300">{Atom.to_string(@node.node_type)}</span>
+          <span class="text-gray-300 bg-gray-800/60 rounded px-1.5 py-0.5">{Atom.to_string(@node.node_type)}</span>
         </div>
         <div class="flex gap-2">
           <span class="text-gray-500">Status:</span>
@@ -506,20 +536,30 @@ defmodule LoomWeb.DecisionGraphComponent do
     end
   end
 
-  # --- Node styling ---
+  # --- Node styling (softer colors) ---
 
   defp node_colors(node_type, _status) do
-    case node_type do
-      :goal -> {"#1e3a5f", "#3b82f6"}
-      :decision -> {"#4a3f1a", "#eab308"}
-      :option -> {"#1a3a2a", "#22c55e"}
-      :action -> {"#2d1f4e", "#a855f7"}
-      :outcome -> {"#1a3a3a", "#14b8a6"}
-      :observation -> {"#1f2937", "#6b7280"}
-      :revisit -> {"#3a2a1a", "#f97316"}
-      _ -> {"#1f2937", "#6b7280"}
+    case Map.get(@node_type_colors, node_type) do
+      {fill, stroke} -> {fill, stroke}
+      nil -> {"#1f2937", "#6b7280"}
     end
   end
+
+  defp node_type_fill(type) do
+    case Map.get(@node_type_colors, type) do
+      {fill, _} -> fill
+      nil -> "#1f2937"
+    end
+  end
+
+  defp node_type_stroke(type) do
+    case Map.get(@node_type_colors, type) do
+      {_, stroke} -> stroke
+      nil -> "#6b7280"
+    end
+  end
+
+  defp node_type_labels, do: @node_type_labels
 
   defp status_stroke_style(:active), do: ""
   defp status_stroke_style(:superseded), do: "6,4"
