@@ -9,6 +9,12 @@ defmodule Loom.Application do
       # Storage
       Loom.Repo,
 
+      # Configuration
+      Loom.Config,
+
+      # Session registry for pid lookup by session_id
+      {Registry, keys: :unique, name: Loom.SessionRegistry},
+
       # Session management
       {DynamicSupervisor, name: Loom.SessionSupervisor, strategy: :one_for_one}
     ]

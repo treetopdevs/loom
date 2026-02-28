@@ -9,8 +9,10 @@ defmodule Loom.Schemas.DecisionEdge do
     field :change_id, Ecto.UUID, autogenerate: true
     belongs_to :from_node, Loom.Schemas.DecisionNode
     belongs_to :to_node, Loom.Schemas.DecisionNode
+
     field :edge_type, Ecto.Enum,
       values: [:leads_to, :chosen, :rejected, :requires, :blocks, :enables, :supersedes]
+
     field :weight, :float, default: 1.0
     field :rationale, :string
 

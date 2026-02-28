@@ -7,8 +7,10 @@ defmodule Loom.Schemas.DecisionNode do
 
   schema "decision_nodes" do
     field :change_id, Ecto.UUID, autogenerate: true
+
     field :node_type, Ecto.Enum,
       values: [:goal, :decision, :option, :action, :outcome, :observation, :revisit]
+
     field :title, :string
     field :description, :string
     field :status, Ecto.Enum, values: [:active, :superseded, :abandoned], default: :active

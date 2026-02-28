@@ -1,0 +1,102 @@
+defmodule LoomCli.Main do
+  @moduledoc """
+  Escript entry point for the Loom CLI.
+  """
+
+  def main(args) do
+    {opts, rest, _invalid} =
+      OptionParser.parse(args,
+        strict: [
+          model: :string,
+          project: :string,
+          yes: :boolean,
+          resume: :string,
+          help: :boolean,
+          version: :boolean
+        ],
+        aliases: [
+          m: :model,
+          p: :project,
+          y: :yes,
+          r: :resume,
+          h: :help,
+          v: :version
+        ]
+      )
+
+    cond do
+      opts[:help] ->
+        print_help()
+
+      opts[:version] ->
+        IO.puts("loom v#{Loom.version()}")
+
+      true ->
+        boot(opts, rest)
+    end
+  end
+
+  defp boot(opts, rest) do
+    # Ensure the application is started (Repo, Config, supervisors)
+    Application.ensure_all_started(:loom)
+
+    project_path = opts[:project] || File.cwd!()
+    Loom.Config.load(project_path)
+
+    # Apply CLI overrides
+    if model = opts[:model] do
+      Loom.Config.put(:model, %{
+        default: model,
+        weak: Loom.Config.get(:model, :weak)
+      })
+    end
+
+    cli_opts = %{
+      project_path: project_path,
+      auto_approve: opts[:yes] || false,
+      resume: opts[:resume]
+    }
+
+    case rest do
+      [] ->
+        # Interactive mode
+        LoomCli.Interactive.start(cli_opts)
+
+      prompt_parts ->
+        # Oneshot mode — join remaining args as the prompt
+        prompt = Enum.join(prompt_parts, " ")
+        LoomCli.Interactive.oneshot(prompt, cli_opts)
+    end
+  end
+
+  defp print_help do
+    IO.puts("""
+    loom - An Elixir-native AI coding assistant
+
+    Usage:
+      loom [options] [prompt]
+
+    Options:
+      -m, --model MODEL      Model to use (default from config)
+      -p, --project PATH     Project path (default: current directory)
+      -y, --yes              Auto-approve all permission prompts
+      -r, --resume ID        Resume a previous session by ID
+      -h, --help             Show this help message
+      -v, --version          Show version
+
+    Examples:
+      loom                          Start interactive session
+      loom "explain this codebase"  Run a single prompt
+      loom -m anthropic:claude-opus-4-6 "refactor this function"
+      loom -r abc123                Resume session abc123
+
+    Interactive commands:
+      /quit, /exit    Exit the session
+      /history        Show conversation history
+      /sessions       List all sessions
+      /model          Show or change the model
+      /help           Show available commands
+      /clear          Clear the terminal
+    """)
+  end
+end
