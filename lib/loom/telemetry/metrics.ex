@@ -33,6 +33,8 @@ defmodule Loom.Telemetry.Metrics do
       [{_, metrics}] -> metrics
       [] -> default_session_metrics()
     end
+  rescue
+    ArgumentError -> default_session_metrics()
   end
 
   @doc "Get global aggregate metrics."
@@ -41,6 +43,8 @@ defmodule Loom.Telemetry.Metrics do
       [{_, metrics}] -> metrics
       [] -> default_global_metrics()
     end
+  rescue
+    ArgumentError -> default_global_metrics()
   end
 
   @doc "Get model usage breakdown (map of model => request count)."
@@ -49,6 +53,8 @@ defmodule Loom.Telemetry.Metrics do
       [{_, breakdown}] -> breakdown
       [] -> %{}
     end
+  rescue
+    ArgumentError -> %{}
   end
 
   @doc "Get tool usage stats (map of tool_name => %{count, total_duration_ms, successes})."
@@ -57,6 +63,8 @@ defmodule Loom.Telemetry.Metrics do
       [{_, stats}] -> stats
       [] -> %{}
     end
+  rescue
+    ArgumentError -> %{}
   end
 
   @doc "Get per-agent usage breakdown for a team. Delegates to CostTracker."
@@ -71,10 +79,11 @@ defmodule Loom.Telemetry.Metrics do
 
   @doc "Get all session summaries for the dashboard."
   def all_sessions do
-    # Use match pattern to select only {:session, _} keys
     :ets.match_object(@table, {{:session, :_}, :_})
     |> Enum.map(fn {{:session, sid}, metrics} -> Map.put(metrics, :session_id, sid) end)
     |> Enum.sort_by(& &1.last_activity, {:desc, DateTime})
+  rescue
+    ArgumentError -> []
   end
 
   # --- GenServer ---
@@ -137,54 +146,25 @@ defmodule Loom.Telemetry.Metrics do
   end
 
   defp attach_handlers do
-    :telemetry.attach(
-      "loom-metrics-llm-stop",
-      [:loom, :llm, :request, :stop],
-      &__MODULE__.handle_llm_stop/4,
-      nil
-    )
+    handlers = [
+      {"loom-metrics-llm-stop", [:loom, :llm, :request, :stop], &__MODULE__.handle_llm_stop/4},
+      {"loom-metrics-tool-stop", [:loom, :tool, :execute, :stop], &__MODULE__.handle_tool_stop/4},
+      {"loom-metrics-session-message", [:loom, :session, :message],
+       &__MODULE__.handle_session_message/4},
+      {"loom-metrics-decision-logged", [:loom, :decision, :logged],
+       &__MODULE__.handle_decision_logged/4},
+      {"loom-metrics-team-llm-stop", [:loom, :team, :llm, :request, :stop],
+       &__MODULE__.handle_team_llm_stop/4},
+      {"loom-metrics-team-escalation", [:loom, :team, :escalation],
+       &__MODULE__.handle_team_escalation/4},
+      {"loom-metrics-team-budget-warning", [:loom, :team, :budget, :warning],
+       &__MODULE__.handle_team_budget_warning/4}
+    ]
 
-    :telemetry.attach(
-      "loom-metrics-tool-stop",
-      [:loom, :tool, :execute, :stop],
-      &__MODULE__.handle_tool_stop/4,
-      nil
-    )
-
-    :telemetry.attach(
-      "loom-metrics-session-message",
-      [:loom, :session, :message],
-      &__MODULE__.handle_session_message/4,
-      nil
-    )
-
-    :telemetry.attach(
-      "loom-metrics-decision-logged",
-      [:loom, :decision, :logged],
-      &__MODULE__.handle_decision_logged/4,
-      nil
-    )
-
-    :telemetry.attach(
-      "loom-metrics-team-llm-stop",
-      [:loom, :team, :llm, :request, :stop],
-      &__MODULE__.handle_team_llm_stop/4,
-      nil
-    )
-
-    :telemetry.attach(
-      "loom-metrics-team-escalation",
-      [:loom, :team, :escalation],
-      &__MODULE__.handle_team_escalation/4,
-      nil
-    )
-
-    :telemetry.attach(
-      "loom-metrics-team-budget-warning",
-      [:loom, :team, :budget, :warning],
-      &__MODULE__.handle_team_budget_warning/4,
-      nil
-    )
+    for {id, event, fun} <- handlers do
+      :telemetry.detach(id)
+      :telemetry.attach(id, event, fun, nil)
+    end
   end
 
   # --- Telemetry Handlers (called in the emitting process) ---

@@ -22,7 +22,9 @@ defmodule LoomWeb.WorkspaceLive do
         diffs: [],
         shell_commands: [],
         permission_request: nil,
-        page_title: "Loom Workspace"
+        page_title: "Loom Workspace",
+        team_id: params["team_id"],
+        team_sub_tab: :activity
       )
 
     case socket.assigns.live_action do
@@ -53,6 +55,13 @@ defmodule LoomWeb.WorkspaceLive do
       Session.subscribe(session_id)
       Phoenix.PubSub.subscribe(Loom.PubSub, "telemetry:updates")
       ensure_index_started(project_path)
+
+      team_id = socket.assigns[:team_id]
+
+      if team_id do
+        Phoenix.PubSub.subscribe(Loom.PubSub, "team:#{team_id}")
+        Phoenix.PubSub.subscribe(Loom.PubSub, "team:#{team_id}:tasks")
+      end
     end
 
     # Load existing history
@@ -121,6 +130,10 @@ defmodule LoomWeb.WorkspaceLive do
   def handle_event("permission_response", %{"action" => _action}, socket) do
     # Placeholder for when permissions are wired up
     {:noreply, socket}
+  end
+
+  def handle_event("switch_sub_tab", %{"tab" => tab}, socket) do
+    {:noreply, assign(socket, team_sub_tab: String.to_existing_atom(tab))}
   end
 
   # --- PubSub Info ---
@@ -206,6 +219,36 @@ defmodule LoomWeb.WorkspaceLive do
   def handle_info({:permission_response, action, _tool_name, _tool_path}, socket) do
     Session.respond_to_permission(socket.assigns.session_id, action)
     {:noreply, assign(socket, permission_request: nil)}
+  end
+
+  # Team PubSub events — forward to team components via send_update
+  def handle_info({:agent_status, _agent_name, _status}, socket) do
+    if socket.assigns[:team_id] do
+      send_update(LoomWeb.TeamDashboardComponent, id: "team-dashboard", team_id: socket.assigns.team_id)
+      send_update(LoomWeb.TeamActivityComponent, id: "team-activity", team_id: socket.assigns.team_id)
+    end
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:task_assigned, _task_id, _agent_name} = _msg, socket) do
+    if socket.assigns[:team_id] do
+      send_update(LoomWeb.TeamDashboardComponent, id: "team-dashboard", team_id: socket.assigns.team_id)
+    end
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:task_completed, _task_id, _agent_name, _result} = _msg, socket) do
+    if socket.assigns[:team_id] do
+      send_update(LoomWeb.TeamDashboardComponent, id: "team-dashboard", team_id: socket.assigns.team_id)
+    end
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:team_dissolved, _team_id}, socket) do
+    {:noreply, assign(socket, team_id: nil, active_tab: :files)}
   end
 
   # Telemetry metrics update
@@ -297,7 +340,7 @@ defmodule LoomWeb.WorkspaceLive do
         <div class="w-96 border-l border-gray-800 flex flex-col bg-gray-900/50">
           <div class="flex border-b border-gray-800">
             <button
-              :for={tab <- [:files, :diff, :terminal, :graph]}
+              :for={tab <- [:files, :diff, :terminal, :graph] ++ if(@team_id, do: [:team], else: [])}
               phx-click="switch_tab"
               phx-value-tab={tab}
               class={"px-3 py-2 text-xs font-medium #{if @active_tab == tab, do: "text-indigo-400 border-b-2 border-indigo-400", else: "text-gray-500 hover:text-gray-300"}"}
@@ -330,6 +373,7 @@ defmodule LoomWeb.WorkspaceLive do
   defp tab_label(:diff), do: "Diff"
   defp tab_label(:terminal), do: "Terminal"
   defp tab_label(:graph), do: "Graph"
+  defp tab_label(:team), do: "Team"
 
   defp render_tab(:files, assigns) do
     ~H"""
@@ -383,6 +427,67 @@ defmodule LoomWeb.WorkspaceLive do
     <.live_component
       module={LoomWeb.DecisionGraphComponent}
       id="decision-graph"
+      session_id={@session_id}
+    />
+    """
+  end
+
+  defp render_tab(:team, assigns) do
+    ~H"""
+    <div class="flex flex-col h-full gap-3">
+      <.live_component
+        module={LoomWeb.TeamDashboardComponent}
+        id="team-dashboard"
+        team_id={@team_id}
+      />
+
+      <div class="flex border-b border-gray-800">
+        <button
+          :for={sub <- [:activity, :cost, :graph]}
+          phx-click="switch_sub_tab"
+          phx-value-tab={sub}
+          class={"px-3 py-2 text-xs font-medium #{if @team_sub_tab == sub, do: "text-indigo-400 border-b-2 border-indigo-400", else: "text-gray-500 hover:text-gray-300"}"}
+        >
+          {team_sub_tab_label(sub)}
+        </button>
+      </div>
+
+      <div class="flex-1 overflow-auto">
+        {render_team_sub_tab(@team_sub_tab, assigns)}
+      </div>
+    </div>
+    """
+  end
+
+  defp team_sub_tab_label(:activity), do: "Activity"
+  defp team_sub_tab_label(:cost), do: "Cost"
+  defp team_sub_tab_label(:graph), do: "Graph"
+
+  defp render_team_sub_tab(:activity, assigns) do
+    ~H"""
+    <.live_component
+      module={LoomWeb.TeamActivityComponent}
+      id="team-activity"
+      team_id={@team_id}
+    />
+    """
+  end
+
+  defp render_team_sub_tab(:cost, assigns) do
+    ~H"""
+    <.live_component
+      module={LoomWeb.TeamCostComponent}
+      id="team-cost"
+      team_id={@team_id}
+    />
+    """
+  end
+
+  defp render_team_sub_tab(:graph, assigns) do
+    ~H"""
+    <.live_component
+      module={LoomWeb.DecisionGraphComponent}
+      id="team-decision-graph"
       session_id={@session_id}
     />
     """

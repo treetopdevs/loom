@@ -20,6 +20,17 @@ defmodule LoomWeb.DecisionGraphComponent do
   @layer_gap 120
   @node_gap 180
 
+  @agent_colors [
+    "#818cf8",
+    "#34d399",
+    "#f472b6",
+    "#fb923c",
+    "#22d3ee",
+    "#a78bfa",
+    "#fbbf24",
+    "#4ade80"
+  ]
+
   @impl true
   def mount(socket) do
     {:ok,
@@ -29,6 +40,7 @@ defmodule LoomWeb.DecisionGraphComponent do
        positioned: [],
        pulse: nil,
        selected_node: nil,
+       agent_filter: nil,
        svg_width: 800,
        svg_height: 400
      )}
@@ -48,7 +60,24 @@ defmodule LoomWeb.DecisionGraphComponent do
         MapSet.member?(node_ids, e.from_node_id) and MapSet.member?(node_ids, e.to_node_id)
       end)
 
-    positioned = layout_nodes(nodes)
+    # Unique agents present in this graph
+    agents =
+      nodes
+      |> Enum.map(& &1.agent_name)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    # Detect conflict node IDs
+    conflict_ids = detect_conflicts(nodes, relevant_edges)
+
+    # Apply agent filter
+    agent_filter = socket.assigns[:agent_filter]
+
+    {visible_nodes, visible_edges} =
+      apply_agent_filter(nodes, relevant_edges, agent_filter)
+
+    positioned = layout_nodes(visible_nodes)
     {svg_w, svg_h} = compute_svg_dimensions(positioned)
 
     {:ok,
@@ -57,6 +86,9 @@ defmodule LoomWeb.DecisionGraphComponent do
        edges: relevant_edges,
        positioned: positioned,
        pulse: pulse,
+       agents: agents,
+       conflict_ids: conflict_ids,
+       visible_edges: visible_edges,
        svg_width: max(svg_w, 400),
        svg_height: max(svg_h, 200)
      )}
@@ -78,12 +110,74 @@ defmodule LoomWeb.DecisionGraphComponent do
     {:noreply, assign(socket, selected_node: nil)}
   end
 
+  def handle_event("filter_agent", %{"agent" => ""}, socket) do
+    {:noreply, assign(socket, agent_filter: nil)}
+  end
+
+  def handle_event("filter_agent", %{"agent" => agent_name}, socket) do
+    {:noreply, assign(socket, agent_filter: agent_name)}
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
     <div class="flex flex-col h-full bg-gray-950 text-gray-100">
+      <style>
+        @keyframes conflict-pulse {
+          0%, 100% { stroke-opacity: 0.5; }
+          50% { stroke-opacity: 1; }
+        }
+        .conflict-glow {
+          animation: conflict-pulse 1.5s ease-in-out infinite;
+        }
+      </style>
+
       <div class="px-3 py-2 border-b border-gray-800">
         <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Decision Graph</h3>
+      </div>
+
+      <!-- Agent filter buttons -->
+      <div :if={@agents != []} class="px-3 py-2 border-b border-gray-800 flex flex-wrap gap-1">
+        <button
+          phx-click="filter_agent"
+          phx-value-agent=""
+          phx-target={@myself}
+          class={[
+            "px-2 py-1 text-xs rounded-full border",
+            if(@agent_filter == nil,
+              do: "border-blue-400 text-blue-400 bg-blue-400/10",
+              else: "border-gray-600 text-gray-400 hover:border-gray-400"
+            )
+          ]}
+        >
+          All
+        </button>
+        <button
+          :for={agent <- @agents}
+          phx-click="filter_agent"
+          phx-value-agent={agent}
+          phx-target={@myself}
+          class={[
+            "px-2 py-1 text-xs rounded-full border flex items-center gap-1",
+            if(@agent_filter == agent,
+              do: "bg-white/10",
+              else: "hover:border-gray-400"
+            )
+          ]}
+          style={
+            if @agent_filter == agent do
+              "border-color: #{agent_color(agent)}; color: #{agent_color(agent)}"
+            else
+              "border-color: #4b5563; color: #9ca3af"
+            end
+          }
+        >
+          <span
+            class="inline-block w-2 h-2 rounded-full"
+            style={"background-color: #{agent_color(agent)}"}
+          />
+          {agent}
+        </button>
       </div>
 
       <div class="flex-1 overflow-auto relative">
@@ -123,7 +217,7 @@ defmodule LoomWeb.DecisionGraphComponent do
 
             <!-- Edges -->
             <.graph_edge
-              :for={edge <- @edges}
+              :for={edge <- @visible_edges}
               edge={edge}
               positioned={@positioned}
             />
@@ -133,9 +227,22 @@ defmodule LoomWeb.DecisionGraphComponent do
               :for={pos <- @positioned}
               pos={pos}
               selected={@selected_node && @selected_node.id == pos.node.id}
+              conflict={MapSet.member?(@conflict_ids, pos.node.id)}
               myself={@myself}
             />
           </svg>
+
+          <!-- Agent legend -->
+          <div :if={@agents != []} class="px-3 py-2 flex flex-wrap gap-2 text-xs text-gray-400">
+            <span class="text-gray-500 mr-1">Agents:</span>
+            <div :for={agent <- @agents} class="flex items-center gap-1">
+              <span
+                class="inline-block w-2 h-2 rounded-full"
+                style={"background-color: #{agent_color(agent)}"}
+              />
+              <span>{agent}</span>
+            </div>
+          </div>
 
           <!-- Node detail panel -->
           <.node_detail :if={@selected_node} node={@selected_node} edges={@edges} nodes={@nodes} myself={@myself} />
@@ -155,8 +262,18 @@ defmodule LoomWeb.DecisionGraphComponent do
     node = assigns.pos.node
     x = assigns.pos.x
     y = assigns.pos.y
-    {fill, stroke} = node_colors(node.node_type, node.status)
+
+    # Agent-based coloring takes priority when agent_name is present
+    {fill, stroke} =
+      if node.agent_name do
+        color = agent_color(node.agent_name)
+        {color <> "20", color}
+      else
+        node_colors(node.node_type, node.status)
+      end
+
     stroke_style = status_stroke_style(node.status)
+    tooltip = if node.agent_name, do: "#{node.title} (#{node.agent_name})", else: node.title
 
     assigns =
       assigns
@@ -166,6 +283,7 @@ defmodule LoomWeb.DecisionGraphComponent do
       |> assign(:stroke, stroke)
       |> assign(:stroke_style, stroke_style)
       |> assign(:node, node)
+      |> assign(:tooltip, tooltip)
       |> assign(:w, @node_width)
       |> assign(:h, @node_height)
 
@@ -177,6 +295,20 @@ defmodule LoomWeb.DecisionGraphComponent do
       class="cursor-pointer"
       role="button"
     >
+      <title>{@tooltip}</title>
+      <!-- Conflict glow ring -->
+      <rect
+        :if={@conflict}
+        x={@x - 3}
+        y={@y - 3}
+        width={@w + 6}
+        height={@h + 6}
+        rx="10"
+        fill="none"
+        stroke="#ef4444"
+        stroke-width="2"
+        class="conflict-glow"
+      />
       <rect
         x={@x}
         y={@y}
@@ -206,6 +338,17 @@ defmodule LoomWeb.DecisionGraphComponent do
         font-size="10"
       >
         {Atom.to_string(@node.node_type)}
+      </text>
+      <!-- Agent name label -->
+      <text
+        :if={@node.agent_name}
+        x={@x + @w / 2}
+        y={@y + 50}
+        text-anchor="middle"
+        fill={agent_color(@node.agent_name)}
+        font-size="8"
+      >
+        {@node.agent_name}
       </text>
       <!-- Confidence badge -->
       <g :if={@node.confidence}>
@@ -301,6 +444,16 @@ defmodule LoomWeb.DecisionGraphComponent do
           <span class="text-gray-500">Status:</span>
           <span class={status_text_class(@node.status)}>{Atom.to_string(@node.status)}</span>
         </div>
+        <div :if={@node.agent_name} class="flex gap-2 items-center">
+          <span class="text-gray-500">Agent:</span>
+          <span class="flex items-center gap-1">
+            <span
+              class="inline-block w-2 h-2 rounded-full"
+              style={"background-color: #{agent_color(@node.agent_name)}"}
+            />
+            <span style={"color: #{agent_color(@node.agent_name)}"}>{@node.agent_name}</span>
+          </span>
+        </div>
         <div :if={@node.confidence} class="flex gap-2">
           <span class="text-gray-500">Confidence:</span>
           <span class="text-gray-300">{@node.confidence}%</span>
@@ -391,6 +544,63 @@ defmodule LoomWeb.DecisionGraphComponent do
   defp edge_text_class(:rejected), do: "text-red-400"
   defp edge_text_class(:supersedes), do: "text-orange-400"
   defp edge_text_class(_), do: "text-gray-500"
+
+  # --- Agent helpers ---
+
+  defp agent_color(agent_name) do
+    index = :erlang.phash2(agent_name, length(@agent_colors))
+    Enum.at(@agent_colors, index)
+  end
+
+  defp detect_conflicts(nodes, edges) do
+    # Find nodes connected by :supersedes edges where they share a title but have different agents
+    supersedes_pairs =
+      edges
+      |> Enum.filter(&(&1.edge_type == :supersedes))
+      |> Enum.flat_map(fn edge ->
+        from = Enum.find(nodes, &(&1.id == edge.from_node_id))
+        to = Enum.find(nodes, &(&1.id == edge.to_node_id))
+
+        if from && to && from.agent_name && to.agent_name && from.agent_name != to.agent_name do
+          [from.id, to.id]
+        else
+          []
+        end
+      end)
+
+    # Also detect same-title nodes from different agents where one is superseded
+    title_conflicts =
+      nodes
+      |> Enum.filter(& &1.agent_name)
+      |> Enum.group_by(& &1.title)
+      |> Enum.flat_map(fn {_title, group} ->
+        agents = Enum.map(group, & &1.agent_name) |> Enum.uniq()
+        has_superseded = Enum.any?(group, &(&1.status == :superseded))
+
+        if length(agents) > 1 and has_superseded do
+          Enum.map(group, & &1.id)
+        else
+          []
+        end
+      end)
+
+    MapSet.new(supersedes_pairs ++ title_conflicts)
+  end
+
+  defp apply_agent_filter(nodes, edges, nil), do: {nodes, edges}
+
+  defp apply_agent_filter(nodes, edges, agent_name) do
+    filtered_nodes = Enum.filter(nodes, &(&1.agent_name == agent_name))
+    filtered_ids = MapSet.new(filtered_nodes, & &1.id)
+
+    filtered_edges =
+      Enum.filter(edges, fn e ->
+        MapSet.member?(filtered_ids, e.from_node_id) and
+          MapSet.member?(filtered_ids, e.to_node_id)
+      end)
+
+    {filtered_nodes, filtered_edges}
+  end
 
   # --- Helpers ---
 

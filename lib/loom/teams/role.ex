@@ -57,7 +57,12 @@ defmodule Loom.Teams.Role do
     Loom.Tools.PeerDiscovery,
     Loom.Tools.PeerClaimRegion,
     Loom.Tools.PeerReview,
-    Loom.Tools.PeerCreateTask
+    Loom.Tools.PeerCreateTask,
+    Loom.Tools.PeerAskQuestion,
+    Loom.Tools.PeerAnswerQuestion,
+    Loom.Tools.PeerForwardQuestion,
+    Loom.Tools.ContextRetrieve,
+    Loom.Tools.ContextOffload
   ]
 
   @lead_tools [
@@ -103,7 +108,12 @@ defmodule Loom.Teams.Role do
     "peer_discovery" => Loom.Tools.PeerDiscovery,
     "peer_claim_region" => Loom.Tools.PeerClaimRegion,
     "peer_review" => Loom.Tools.PeerReview,
-    "peer_create_task" => Loom.Tools.PeerCreateTask
+    "peer_create_task" => Loom.Tools.PeerCreateTask,
+    "peer_ask_question" => Loom.Tools.PeerAskQuestion,
+    "peer_answer_question" => Loom.Tools.PeerAnswerQuestion,
+    "peer_forward_question" => Loom.Tools.PeerForwardQuestion,
+    "context_retrieve" => Loom.Tools.ContextRetrieve,
+    "context_offload" => Loom.Tools.ContextOffload
   }
 
   # -- Built-in role definitions --

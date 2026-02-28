@@ -2,10 +2,10 @@ defmodule LoomWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :loom
 
   @session_options [
-    store: :ets,
+    store: :cookie,
     key: "_loom_key",
-    table: :loom_sessions,
-    signing_salt: "loom_sign"
+    signing_salt: "loom_sign",
+    encryption_salt: "loom_encrypt"
   ]
 
   socket "/live", Phoenix.LiveView.Socket,
