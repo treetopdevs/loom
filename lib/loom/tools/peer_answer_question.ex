@@ -18,17 +18,27 @@ defmodule Loom.Tools.PeerAnswerQuestion do
 
   @impl true
   def run(params, context) do
-    _team_id = param!(params, :team_id)
+    team_id = param!(params, :team_id)
     query_id = param!(params, :query_id)
     answer = param!(params, :answer)
     from = param!(context, :agent_name)
 
-    case QueryRouter.answer(query_id, from, answer) do
-      :ok ->
-        {:ok, %{result: "Answer delivered for query #{query_id}."}}
+    # Validate the query belongs to this team before answering
+    with {:ok, query} <- QueryRouter.get_query(query_id),
+         true <- query.team_id == team_id do
+      case QueryRouter.answer(query_id, from, answer) do
+        :ok ->
+          {:ok, %{result: "Answer delivered for query #{query_id}."}}
 
+        {:error, :not_found} ->
+          {:ok, %{result: "Query #{query_id} not found (may have expired)."}}
+      end
+    else
       {:error, :not_found} ->
         {:ok, %{result: "Query #{query_id} not found (may have expired)."}}
+
+      false ->
+        {:ok, %{result: "Query #{query_id} does not belong to this team."}}
     end
   end
 end

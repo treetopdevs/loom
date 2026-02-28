@@ -232,12 +232,18 @@ defmodule Loom.Teams.ContextKeeper do
 
     state =
       if state.dirty do
-        case do_persist(state) do
-          {:ok, _} ->
-            %{state | dirty: false}
+        try do
+          case do_persist(state) do
+            {:ok, _} ->
+              %{state | dirty: false}
 
-          {:error, reason} ->
-            Logger.warning("[ContextKeeper:#{state.id}] Persist failed: #{inspect(reason)}, will retry")
+            {:error, reason} ->
+              Logger.warning("[ContextKeeper:#{state.id}] Persist failed: #{inspect(reason)}, will retry")
+              schedule_persist(state)
+          end
+        rescue
+          e ->
+            Logger.warning("[ContextKeeper:#{state.id}] Persist raised: #{Exception.message(e)}, will retry")
             schedule_persist(state)
         end
       else
@@ -252,10 +258,15 @@ defmodule Loom.Teams.ContextKeeper do
     if state.persist_ref, do: Process.cancel_timer(state.persist_ref)
 
     if state.dirty do
-      case do_persist(state) do
-        {:ok, _} -> :ok
-        {:error, reason} ->
-          Logger.error("[ContextKeeper:#{state.id}] Final persist failed on terminate: #{inspect(reason)}")
+      try do
+        case do_persist(state) do
+          {:ok, _} -> :ok
+          {:error, reason} ->
+            Logger.error("[ContextKeeper:#{state.id}] Final persist failed on terminate: #{inspect(reason)}")
+        end
+      rescue
+        e ->
+          Logger.error("[ContextKeeper:#{state.id}] Final persist raised on terminate: #{Exception.message(e)}")
       end
     end
 
