@@ -1,7 +1,9 @@
 defmodule Loom.Teams.ContextKeeper do
   @moduledoc """
-  Lightweight GenServer that holds conversation context for a team.
-  No LLM calls — pure data holder for offloaded agent context.
+  GenServer that holds conversation context for a team.
+
+  Supports both raw retrieval (keyword matching) and smart retrieval
+  (single LLM call to answer questions about stored context).
 
   Registered in AgentRegistry as `{team_id, "keeper:<id>"}` with
   metadata `%{type: :keeper, topic: topic, tokens: count}`.
@@ -61,6 +63,11 @@ defmodule Loom.Teams.ContextKeeper do
   @doc "Get a one-line index entry for an agent's context window."
   def index_entry(pid) do
     GenServer.call(pid, :index_entry)
+  end
+
+  @doc "Query this keeper with a smart LLM-powered retrieval."
+  def smart_retrieve(pid, question) do
+    GenServer.call(pid, {:smart_retrieve, question}, 30_000)
   end
 
   @doc "Get full state for debugging."
@@ -133,6 +140,35 @@ defmodule Loom.Teams.ContextKeeper do
       end
 
     {:reply, {:ok, result}, state}
+  end
+
+  @impl true
+  def handle_call({:smart_retrieve, question}, _from, state) do
+    context = format_messages_as_context(state.messages)
+
+    model = Loom.Teams.ModelRouter.default_model()
+
+    messages = [
+      ReqLLM.Context.system("""
+      You are a context retrieval assistant. Answer the question using ONLY
+      the conversation context provided. Be specific and concise. If the
+      context doesn't contain the answer, say so.
+      """),
+      ReqLLM.Context.user("Context:\n#{context}\n\nQuestion: #{question}")
+    ]
+
+    case call_llm(model, messages) do
+      {:ok, response} ->
+        answer = extract_answer(response)
+        maybe_track_cost(state, response)
+        {:reply, {:ok, answer}, state}
+
+      {:error, _reason} ->
+        # Fallback: format matching messages as text so the return type
+        # is always a binary string, not a raw message list.
+        result = keyword_fallback(state, question) |> format_messages_as_context()
+        {:reply, {:ok, result}, state}
+    end
   end
 
   @impl true
@@ -259,6 +295,52 @@ defmodule Loom.Teams.ContextKeeper do
       end)
 
     result
+  end
+
+  defp format_messages_as_context(messages) do
+    messages
+    |> Enum.map(fn msg ->
+      role = msg[:role] || msg["role"] || "unknown"
+      content = message_content(msg)
+      "[#{role}]: #{content}"
+    end)
+    |> Enum.join("\n")
+  end
+
+  defp call_llm(model, messages) do
+    ReqLLM.generate_text(model, messages, [])
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
+  defp extract_answer(response) do
+    classified = ReqLLM.Response.classify(response)
+    classified.text || ""
+  end
+
+  defp maybe_track_cost(state, response) do
+    if state.team_id do
+      case ReqLLM.Response.usage(response) do
+        %{} = usage ->
+          Loom.Teams.CostTracker.record_usage(state.team_id, "keeper:#{state.id}", %{
+            input_tokens: usage[:input_tokens] || usage["input_tokens"] || 0,
+            output_tokens: usage[:output_tokens] || usage["output_tokens"] || 0
+          })
+
+        _ ->
+          :ok
+      end
+    end
+  rescue
+    _ -> :ok
+  end
+
+  defp keyword_fallback(state, query) do
+    if state.token_count < @keyword_match_budget do
+      state.messages
+    else
+      keyword_match(state.messages, query)
+    end
   end
 
   defp message_content(%{content: content}) when is_binary(content), do: content

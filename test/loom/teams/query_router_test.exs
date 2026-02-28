@@ -1,7 +1,7 @@
 defmodule Loom.Teams.QueryRouterTest do
   use ExUnit.Case, async: false
 
-  alias Loom.Teams.{Comms, Manager, QueryRouter}
+  alias Loom.Teams.{Comms, ContextKeeper, Manager, QueryRouter}
 
   setup do
     {:ok, team_id} = Manager.create_team(name: "qr-test")
@@ -12,6 +12,11 @@ defmodule Loom.Teams.QueryRouterTest do
     QueryRouter.expire_stale(0)
 
     on_exit(fn ->
+      DynamicSupervisor.which_children(Loom.Teams.AgentSupervisor)
+      |> Enum.each(fn {_, pid, _, _} ->
+        DynamicSupervisor.terminate_child(Loom.Teams.AgentSupervisor, pid)
+      end)
+
       Loom.Teams.TableRegistry.delete_table(team_id)
     end)
 
@@ -101,6 +106,78 @@ defmodule Loom.Teams.QueryRouterTest do
       # Expire with large TTL (nothing is stale)
       assert {:ok, 0} = QueryRouter.expire_stale(600_000)
       assert {:ok, _query} = QueryRouter.get_query(query_id)
+    end
+  end
+
+  describe "keeper context enrichment" do
+    test "query without keepers has empty enrichments", %{team_id: team_id} do
+      Comms.subscribe(team_id, "alice")
+      {:ok, query_id} = QueryRouter.ask(team_id, "alice", "What is the auth format?")
+
+      # No keepers exist, so enrichments should be empty
+      assert_receive {:query, ^query_id, "alice", "What is the auth format?", []}
+    end
+
+    test "query with keeper includes context enrichment", %{team_id: team_id} do
+      # Spawn a keeper with relevant context — topic has word overlap with query
+      {:ok, _pid} =
+        DynamicSupervisor.start_child(
+          Loom.Teams.AgentSupervisor,
+          {ContextKeeper,
+           id: Ecto.UUID.generate(),
+           team_id: team_id,
+           topic: "auth token format",
+           source_agent: "coder",
+           messages: [
+             %{role: :user, content: "We decided to use JWT tokens for auth"},
+             %{role: :assistant, content: "JWT with RS256 signing, stored in httpOnly cookies"}
+           ]}
+        )
+
+      Comms.subscribe(team_id, "bob")
+      {:ok, query_id} = QueryRouter.ask(team_id, "alice", "What auth token format?", target: "bob")
+
+      # Smart retrieval falls back to keyword matching (no LLM in test env),
+      # which is now formatted as a text string. The enrichment should be
+      # a non-empty list with a "[Context Keeper]:" prefix.
+      assert_receive {:query, ^query_id, "alice", "What auth token format?", enrichments}
+
+      assert length(enrichments) == 1
+      assert [keeper_context] = enrichments
+      assert keeper_context =~ "[Context Keeper]:"
+      assert keeper_context =~ "JWT"
+    end
+
+    test "keeper failure does not block query routing", %{team_id: team_id} do
+      Comms.subscribe(team_id, "alice")
+
+      # Even if keeper retrieval fails somehow, the query should still route
+      {:ok, query_id} = QueryRouter.ask(team_id, "alice", "Will this work?")
+
+      assert_receive {:query, ^query_id, "alice", "Will this work?", _enrichments}
+    end
+
+    test "query state includes keeper enrichments", %{team_id: team_id} do
+      {:ok, _pid} =
+        DynamicSupervisor.start_child(
+          Loom.Teams.AgentSupervisor,
+          {ContextKeeper,
+           id: Ecto.UUID.generate(),
+           team_id: team_id,
+           topic: "database design",
+           source_agent: "researcher",
+           messages: [
+             %{role: :user, content: "We use PostgreSQL with binary_id primary keys"}
+           ]}
+        )
+
+      {:ok, query_id} = QueryRouter.ask(team_id, "alice", "What database do we use?")
+      {:ok, query} = QueryRouter.get_query(query_id)
+
+      # Enrichments stored in query state — should contain keeper context
+      assert length(query.enrichments) == 1
+      assert hd(query.enrichments) =~ "[Context Keeper]:"
+      assert hd(query.enrichments) =~ "PostgreSQL"
     end
   end
 end
