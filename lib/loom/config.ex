@@ -132,7 +132,8 @@ defmodule Loom.Config do
     reserved_output_tokens enabled enforce_pre_edit auto_log_commits
     servers name command args url port server_enabled watch_enabled
     teams budget max_per_team_usd max_per_agent_usd max_per_agent_tokens provider_limits
-    models grunt standard expert architect escalation)a
+    models grunt standard expert architect escalation
+    templates agents role count)a
 
   # Pre-compute a string→atom lookup map so atomize_keys never raises
   @known_key_map Map.new(@known_keys, fn atom -> {Atom.to_string(atom), atom} end)

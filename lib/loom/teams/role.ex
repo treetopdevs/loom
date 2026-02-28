@@ -61,6 +61,7 @@ defmodule Loom.Teams.Role do
     Loom.Tools.PeerAskQuestion,
     Loom.Tools.PeerAnswerQuestion,
     Loom.Tools.PeerForwardQuestion,
+    Loom.Tools.PeerChangeRole,
     Loom.Tools.ContextRetrieve,
     Loom.Tools.ContextOffload
   ]
@@ -112,6 +113,7 @@ defmodule Loom.Teams.Role do
     "peer_ask_question" => Loom.Tools.PeerAskQuestion,
     "peer_answer_question" => Loom.Tools.PeerAnswerQuestion,
     "peer_forward_question" => Loom.Tools.PeerForwardQuestion,
+    "peer_change_role" => Loom.Tools.PeerChangeRole,
     "context_retrieve" => Loom.Tools.ContextRetrieve,
     "context_offload" => Loom.Tools.ContextOffload
   }
