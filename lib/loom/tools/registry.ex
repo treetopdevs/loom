@@ -13,7 +13,12 @@ defmodule Loom.Tools.Registry do
     Loom.Tools.DecisionLog,
     Loom.Tools.DecisionQuery,
     Loom.Tools.SubAgent,
-    Loom.Tools.LspDiagnostics
+    Loom.Tools.LspDiagnostics,
+    Loom.Tools.ContextRetrieve,
+    Loom.Tools.ContextOffload,
+    Loom.Tools.PeerAskQuestion,
+    Loom.Tools.PeerAnswerQuestion,
+    Loom.Tools.PeerForwardQuestion
   ]
 
   @doc "Returns all registered tool modules."

@@ -23,6 +23,7 @@ defmodule Loom.Teams.ContextKeeperTest do
     source_agent = Keyword.get(opts, :source_agent, "test-agent")
     messages = Keyword.get(opts, :messages, [])
     metadata = Keyword.get(opts, :metadata, %{})
+    persist_debounce_ms = Keyword.get(opts, :persist_debounce_ms, 0)
 
     {:ok, pid} =
       DynamicSupervisor.start_child(
@@ -33,7 +34,8 @@ defmodule Loom.Teams.ContextKeeperTest do
          topic: topic,
          source_agent: source_agent,
          messages: messages,
-         metadata: metadata}
+         metadata: metadata,
+         persist_debounce_ms: persist_debounce_ms}
       )
 
     %{pid: pid, id: id, team_id: team_id}
@@ -230,13 +232,66 @@ defmodule Loom.Teams.ContextKeeperTest do
 
       :ok = ContextKeeper.store(pid, [%{role: :user, content: "persist me"}])
 
-      # Give async persist time to complete
-      Process.sleep(100)
+      :ok = ContextKeeper.flush_persist(pid)
 
       record = Repo.get(Loom.Schemas.ContextKeeper, id)
       assert record
       assert record.topic
       assert record.status == :active
+      assert record.messages["messages"] == [%{"role" => "user", "content" => "persist me"}]
+    end
+
+    test "coalesces rapid stores into single persist" do
+      id = Ecto.UUID.generate()
+      %{pid: pid} = start_keeper(id: id, persist_debounce_ms: 100)
+
+      :ok = ContextKeeper.store(pid, [%{role: :user, content: "msg-1"}])
+      :ok = ContextKeeper.store(pid, [%{role: :user, content: "msg-2"}])
+      :ok = ContextKeeper.store(pid, [%{role: :user, content: "msg-3"}])
+
+      :ok = ContextKeeper.flush_persist(pid)
+
+      record = Repo.get(Loom.Schemas.ContextKeeper, id)
+      assert length(record.messages["messages"]) == 3
+    end
+
+    test "reloads state from SQLite on restart" do
+      id = Ecto.UUID.generate()
+      team_id = "test-team-#{System.unique_integer([:positive])}"
+
+      %{pid: pid} = start_keeper(id: id, team_id: team_id)
+      :ok = ContextKeeper.store(pid, [%{role: :user, content: "survive crash"}])
+      :ok = ContextKeeper.flush_persist(pid)
+      ref = Process.monitor(pid)
+      DynamicSupervisor.terminate_child(Loom.Teams.AgentSupervisor, pid)
+      assert_receive {:DOWN, ^ref, :process, ^pid, _}, 1000
+
+      %{pid: pid2} = start_keeper(id: id, team_id: team_id)
+      {:ok, messages} = ContextKeeper.retrieve_all(pid2)
+      assert length(messages) == 1
+      assert hd(messages)["content"] == "survive crash"
+    end
+
+    test "terminate persists dirty state" do
+      id = Ecto.UUID.generate()
+      %{pid: pid} = start_keeper(id: id, persist_debounce_ms: 60_000)
+
+      :ok = ContextKeeper.store(pid, [%{role: :user, content: "final state"}])
+
+      # Use GenServer.stop which calls terminate/2 synchronously before exit.
+      # The DynamicSupervisor will see a :normal exit and not restart (:permanent
+      # restarts on abnormal exits; :normal is not abnormal for stop).
+      # Actually :permanent restarts on all exits including :normal — but we
+      # monitor to wait for full cleanup before checking DB.
+      ref = Process.monitor(pid)
+      GenServer.stop(pid, :shutdown)
+      assert_receive {:DOWN, ^ref, :process, ^pid, _}, 1000
+      # Small delay to let DynamicSupervisor process the child exit and deregister
+      Process.sleep(50)
+
+      record = Repo.get(Loom.Schemas.ContextKeeper, id)
+      assert record
+      assert record.messages["messages"] == [%{"role" => "user", "content" => "final state"}]
     end
   end
 end
