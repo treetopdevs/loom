@@ -2,9 +2,31 @@ defmodule Loom.RepoIntel.RepoMap do
   @moduledoc "Generates a repo map with symbol extraction and relevance ranking."
 
   alias Loom.RepoIntel.Index
+  alias Loom.RepoIntel.TreeSitter
 
-  @doc "Extract symbols from a source file using regex-based pattern matching."
+  @doc """
+  Extract symbols from a source file.
+
+  Uses tree-sitter when available for AST-based parsing, otherwise falls back
+  to regex-based pattern matching.
+  """
   def extract_symbols(file_path) do
+    if tree_sitter_available?() do
+      case TreeSitter.extract_symbols(file_path) do
+        [] -> extract_symbols_regex(file_path)
+        symbols -> symbols
+      end
+    else
+      extract_symbols_regex(file_path)
+    end
+  end
+
+  @doc "Check if tree-sitter based extraction is available."
+  @spec tree_sitter_available?() :: boolean()
+  def tree_sitter_available?, do: TreeSitter.available?()
+
+  @doc "Extract symbols using regex only (original implementation)."
+  def extract_symbols_regex(file_path) do
     case File.read(file_path) do
       {:ok, content} ->
         language = Index.detect_language(file_path)

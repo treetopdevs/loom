@@ -12,6 +12,7 @@ defmodule Loom.MixProject do
       aliases: aliases(),
       deps: deps(),
       escript: escript(),
+      releases: releases(),
       elixirc_paths: elixirc_paths(Mix.env())
     ]
   end
@@ -30,6 +31,24 @@ defmodule Loom.MixProject do
     [main_module: LoomCli.Main]
   end
 
+  defp releases do
+    [
+      loom: [
+        steps: [:assemble, &Burrito.wrap/1],
+        burrito: [
+          targets: [
+            macos_aarch64: [os: :darwin, cpu: :aarch64],
+            macos_x86_64: [os: :darwin, cpu: :x86_64],
+            linux_x86_64: [os: :linux, cpu: :x86_64],
+            linux_aarch64: [os: :linux, cpu: :aarch64]
+          ]
+        ],
+        applications: [runtime_tools: :permanent],
+        cookie: "loom_#{@version}"
+      ]
+    ]
+  end
+
   defp deps do
     [
       # Jido ecosystem
@@ -37,6 +56,7 @@ defmodule Loom.MixProject do
       {:jido_action, "~> 2.0"},
       {:jido_signal, "~> 2.0"},
       {:jido_ai, github: "agentjido/jido_ai", branch: "main"},
+      {:jido_mcp, github: "agentjido/jido_mcp", branch: "main"},
       {:jido_shell, github: "agentjido/jido_shell"},
 
       # LLM client
@@ -81,9 +101,13 @@ defmodule Loom.MixProject do
       {:dns_cluster, "~> 0.1"},
       {:bandit, "~> 1.6"},
 
+      # Binary packaging
+      {:burrito, "~> 1.0"},
+
       # Dev/Test
       {:mox, "~> 1.0", only: :test},
-      {:floki, "~> 0.37", only: :test}
+      {:floki, "~> 0.37", only: :test},
+      {:lazy_html, ">= 0.1.0", only: :test}
     ]
   end
 

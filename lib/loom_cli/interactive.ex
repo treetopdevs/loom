@@ -114,6 +114,7 @@ defmodule LoomCli.Interactive do
       /history        Show conversation history
       /sessions       List all sessions
       /model          Show or change the current model
+      /architect      Toggle architect/editor mode
       /help           Show this help message
       /clear          Clear the terminal
 
@@ -131,14 +132,51 @@ defmodule LoomCli.Interactive do
   defp handle_input("/model", session_pid, opts) do
     model = Loom.Config.get(:model, :default)
     weak = Loom.Config.get(:model, :weak)
+    architect = Loom.Config.get(:model, :architect)
+    editor = Loom.Config.get(:model, :editor)
 
     IO.puts("""
 
     #{IO.ANSI.bright()}Current models:#{IO.ANSI.reset()}
-      Default: #{model}
-      Weak:    #{weak}
+      Default:   #{model}
+      Weak:      #{weak}
+      Architect: #{architect}
+      Editor:    #{editor}
     """)
 
+    loop(session_pid, opts)
+  end
+
+  defp handle_input("/architect", session_pid, opts) do
+    case Session.get_mode(session_pid) do
+      {:ok, :normal} ->
+        Session.set_mode(session_pid, :architect)
+        architect_model = Loom.Config.get(:model, :architect) || "anthropic:claude-opus-4-6"
+        editor_model = Loom.Config.get(:model, :editor) || "anthropic:claude-haiku-4-5"
+
+        IO.puts(
+          IO.ANSI.magenta() <>
+            "  Architect mode enabled" <>
+            IO.ANSI.reset() <>
+            IO.ANSI.faint() <>
+            " (architect: #{architect_model}, editor: #{editor_model})" <>
+            IO.ANSI.reset()
+        )
+
+      {:ok, :architect} ->
+        Session.set_mode(session_pid, :normal)
+
+        IO.puts(
+          IO.ANSI.cyan() <>
+            "  Normal mode restored" <>
+            IO.ANSI.reset()
+        )
+
+      _ ->
+        IO.puts(IO.ANSI.yellow() <> "  Could not toggle mode." <> IO.ANSI.reset())
+    end
+
+    IO.puts("")
     loop(session_pid, opts)
   end
 

@@ -14,6 +14,7 @@ defmodule LoomWeb.WorkspaceLive do
         status: :idle,
         active_tab: :files,
         model: @default_model,
+        mode: :normal,
         input_text: "",
         current_tool: nil,
         selected_file: nil,
@@ -50,6 +51,7 @@ defmodule LoomWeb.WorkspaceLive do
 
     if connected?(socket) do
       Session.subscribe(session_id)
+      Phoenix.PubSub.subscribe(Loom.PubSub, "telemetry:updates")
       ensure_index_started(project_path)
     end
 
@@ -60,10 +62,14 @@ defmodule LoomWeb.WorkspaceLive do
         _ -> []
       end
 
+    session_metrics = Loom.Telemetry.Metrics.session_metrics(session_id)
+
     assign(socket,
       session_id: session_id,
       project_path: project_path,
       messages: messages,
+      session_cost: session_metrics.cost_usd,
+      session_tokens: session_metrics.prompt_tokens + session_metrics.completion_tokens,
       page_title: "Loom - #{short_id(session_id)}"
     )
   end
@@ -104,6 +110,12 @@ defmodule LoomWeb.WorkspaceLive do
 
   def handle_event("deselect_file", _params, socket) do
     {:noreply, assign(socket, selected_file: nil, file_content: nil)}
+  end
+
+  def handle_event("toggle_mode", _params, socket) do
+    new_mode = if socket.assigns.mode == :normal, do: :architect, else: :normal
+    Session.set_mode(socket.assigns.session_id, new_mode)
+    {:noreply, assign(socket, mode: new_mode)}
   end
 
   def handle_event("permission_response", %{"action" => _action}, socket) do
@@ -149,6 +161,22 @@ defmodule LoomWeb.WorkspaceLive do
     {:noreply, assign(socket, permission_request: %{tool_name: tool_name, tool_path: tool_path})}
   end
 
+  def handle_info({:mode_changed, _session_id, mode}, socket) do
+    {:noreply, assign(socket, mode: mode)}
+  end
+
+  def handle_info({:architect_phase, _phase}, socket) do
+    {:noreply, socket}
+  end
+
+  def handle_info({:architect_plan, _session_id, _plan_data}, socket) do
+    {:noreply, socket}
+  end
+
+  def handle_info({:architect_step, _session_id, _step}, socket) do
+    {:noreply, socket}
+  end
+
   def handle_info({:select_file, path}, socket) do
     abs_path = Path.join(socket.assigns.project_path, path)
 
@@ -180,6 +208,17 @@ defmodule LoomWeb.WorkspaceLive do
     {:noreply, assign(socket, permission_request: nil)}
   end
 
+  # Telemetry metrics update
+  def handle_info(:metrics_updated, socket) do
+    metrics = Loom.Telemetry.Metrics.session_metrics(socket.assigns.session_id)
+
+    {:noreply,
+     assign(socket,
+       session_cost: metrics.cost_usd,
+       session_tokens: metrics.prompt_tokens + metrics.completion_tokens
+     )}
+  end
+
   # Handle async task completion
   def handle_info({ref, _result}, socket) when is_reference(ref) do
     Process.demonitor(ref, [:flush])
@@ -206,8 +245,17 @@ defmodule LoomWeb.WorkspaceLive do
         <div class="flex items-center gap-3">
           <span class="text-lg font-semibold text-indigo-400">Loom</span>
           <.live_component module={LoomWeb.ModelSelectorComponent} id="model-selector" model={@model} />
+          <button
+            phx-click="toggle_mode"
+            class={"text-xs px-2 py-1 rounded font-medium transition #{if @mode == :architect, do: "bg-purple-900/50 text-purple-400 ring-1 ring-purple-500/50", else: "bg-gray-800 text-gray-500 hover:text-gray-300"}"}
+          >
+            {if @mode == :architect, do: "Architect", else: "Normal"}
+          </button>
         </div>
         <div class="flex items-center gap-3">
+          <a href="/dashboard" class="text-xs text-gray-500 hover:text-indigo-400 px-2 py-1 rounded bg-gray-800/50">
+            ${format_cost(@session_cost)} / {format_tokens(@session_tokens)} tok
+          </a>
           <.live_component module={LoomWeb.SessionSwitcherComponent} id="session-switcher" session_id={@session_id} />
           <span class={"text-xs px-2 py-1 rounded #{status_class(@status)}"}>
             {status_label(@status)}
@@ -353,6 +401,17 @@ defmodule LoomWeb.WorkspaceLive do
   defp short_id(id) do
     String.slice(id, 0, 8)
   end
+
+  defp format_cost(cost) when is_number(cost) and cost > 0,
+    do: :erlang.float_to_binary(cost / 1, decimals: 4)
+
+  defp format_cost(_), do: "0.00"
+
+  defp format_tokens(n) when is_integer(n) and n >= 1_000,
+    do: "#{Float.round(n / 1_000, 1)}k"
+
+  defp format_tokens(n) when is_number(n), do: to_string(trunc(n))
+  defp format_tokens(_), do: "0"
 
   defp parse_shell_result(result) when is_binary(result) do
     case String.split(result, "\n", parts: 2) do

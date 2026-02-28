@@ -13,7 +13,12 @@ defmodule Loom.Config do
   @defaults %{
     model: %{
       default: "anthropic:claude-sonnet-4-6",
-      weak: "anthropic:claude-haiku-4-5"
+      weak: "anthropic:claude-haiku-4-5",
+      architect: "anthropic:claude-opus-4-6",
+      editor: "anthropic:claude-haiku-4-5"
+    },
+    repo: %{
+      watch_enabled: true
     },
     permissions: %{
       auto_approve: ["file_read", "file_search", "content_search", "directory_list"]
@@ -114,10 +119,10 @@ defmodule Loom.Config do
   end
 
   # Known config keys that may appear in .loom.toml
-  @known_keys ~w(model permissions context decisions mcp web
-    default weak auto_approve max_repo_map_tokens max_decision_context_tokens
+  @known_keys ~w(model permissions context decisions mcp web lsp repo
+    default weak architect editor auto_approve max_repo_map_tokens max_decision_context_tokens
     reserved_output_tokens enabled enforce_pre_edit auto_log_commits
-    servers name command args url port)a
+    servers name command args url port server_enabled watch_enabled)a
 
   defp atomize_keys(map) when is_map(map) do
     Map.new(map, fn
