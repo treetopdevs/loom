@@ -149,36 +149,39 @@ The Jido ecosystem saves thousands of lines of code and provides battle-tested i
 - **Telemetry + cost dashboard** — full instrumentation across LLM calls, tool execution, and message persistence. ETS-backed real-time metrics. LiveView dashboard at `/dashboard` with per-session costs, model usage breakdown, and tool execution frequency
 - **Single binary packaging** — [Burrito](https://github.com/burrito-elixir/burrito) wraps the BEAM into a self-extracting binary for macOS (aarch64/x86_64) and Linux (x86_64/aarch64). Auto-migrates on startup, stores data at `~/.loom/`
 
-### What's Next
+### Agent Teams (Phase 5 — Active Development)
 
-- **Agent swarms** — multi-agent coordination with OTP message passing, shared decision graphs, and LiveView real-time swarm visualization
+- **OTP-native agent teams** — each agent is a GenServer under a DynamicSupervisor. Agents communicate through Phoenix PubSub in real-time — direct messages, team-wide broadcasts, context updates. No files, no polling, sub-millisecond latency.
+- **Zero-loss context mesh** — agents offload context to lightweight Keeper processes instead of summarizing it away. Nothing is ever destroyed — any agent can retrieve the full conversation from any other agent's history.
+- **Role-based agents** — lead, researcher, coder, reviewer, tester. Each role has scoped tools and a tailored system prompt, but all use the same user-configured model. The swarm's collective intelligence compensates for individual capability.
+- **Region-level file locking** — multiple agents can safely edit the same file by claiming specific line ranges or symbols. Intent broadcasting lets peers coordinate before editing.
+- **Peer review protocol** — agents request code reviews from each other. Critical paths can require review before edits are applied.
+- **Task coordination** — agents create tasks, propose plan revisions, and discover work that needs doing. Plans evolve as the team learns.
+- **Per-team budget tracking** — token bucket rate limiting per provider, per-team and per-agent spend tracking with configurable limits.
+- **Async agent loops** — LLM calls run as `Task.async`, so agents stay responsive to messages even while waiting for model responses. Urgent messages (budget exceeded, file conflicts) can interrupt in-flight work.
 
 ---
 
-## Looking Ahead: Agent Swarms on the BEAM
+## Why Agent Teams Belong on the BEAM
 
-Here's where it gets interesting.
+Most multi-agent AI systems bolt coordination onto single-threaded runtimes using message queues, file-based communication, or HTTP polling. Loom doesn't need any of that — the BEAM virtual machine was literally built for this.
 
-The BEAM was built for running millions of lightweight, isolated, communicating processes. That's exactly what an AI agent swarm is. The patterns emerging in tools like Claude Code's teams feature — where a lead agent spawns specialized workers, coordinates via message passing, tracks tasks with dependencies, and gracefully shuts down completed agents — that's just OTP.
+**Every agent is a GenServer.** Spawning an agent is `DynamicSupervisor.start_child/2`. It takes milliseconds, not seconds. An agent crashing doesn't take down the team — OTP supervisors restart it with its last known state. This is the same infrastructure that keeps telecom switches running for decades.
 
-Loom is architected from the ground up to support this:
+**Communication is native message passing.** Agents talk to each other through Phoenix PubSub — direct messages, team-wide broadcasts, context updates, task assignments. No serialization overhead, no network hops, no message broker to maintain. A PubSub broadcast reaches every agent in under a millisecond.
 
-- **DynamicSupervisor** already manages session processes. Spawning a "team" of agents is spawning more sessions under the same supervisor.
-- **Registry** provides process discovery. Agents find each other by name, not by PID.
-- **GenServer message passing** is the native communication primitive. No Redis pub/sub, no HTTP polling, no message broker.
-- **Task.async_stream** enables parallel tool execution across agents with backpressure.
-- **Monitors and links** handle the "what if an agent crashes?" problem that every other framework handles with retry loops and health checks.
+**Context never gets destroyed.** This is the big one. Every other AI coding tool summarizes or compacts conversation history as it grows, permanently losing information. Loom agents offload context to lightweight Keeper processes — GenServers that hold conversation chunks at full fidelity. Any agent can query any keeper to retrieve exactly what was said 200 messages ago. The context mesh means the team's collective memory grows with the task instead of shrinking.
 
-Imagine asking Loom to refactor a module and having it automatically:
-1. Spawn a **researcher** agent to analyze usage patterns across the codebase
-2. Spawn an **architect** agent to design the new interface
-3. Spawn an **implementer** agent to write the code
-4. Spawn a **tester** agent to verify nothing broke
-5. Coordinate all four through OTP message passing, with the decision graph tracking every choice
+**Cheap models, collective intelligence.** A swarm of affordable models (like GLM-5 at ~$0.95/M tokens) communicating fluidly through OTP can outperform a single expensive model working alone. When every agent has access to the team's shared knowledge, peer review, and real-time coordination, individual model capability matters less than collective capability. The same task that costs $5 with a single Opus call can cost $0.50 with a coordinated team.
 
-This isn't speculative. The primitives are already here in the BEAM. Jido's agent lifecycle and signal system provide the framework. Loom's decision graph provides the shared memory. The LiveView UI can visualize the entire swarm in real-time.
+Ask Loom to refactor a module and it automatically:
+1. Spawns **researchers** to analyze usage patterns across the codebase
+2. Spawns **coders** that claim specific file regions and implement changes in parallel
+3. Spawns a **reviewer** that checks every edit before it's applied
+4. Coordinates all of them through PubSub, with the decision graph tracking every choice
+5. Any agent can ask the team a question, create new tasks, or propose plan revisions
 
-Multi-agent coding isn't a feature to bolt on later. On the BEAM, it's the natural evolution.
+This isn't a roadmap — the OTP infrastructure, agent communication, task coordination, and context mesh are built and working.
 
 ---
 
@@ -323,9 +326,23 @@ loom/
 │   │   │   ├── persistence.ex      # SQLite CRUD for sessions + messages
 │   │   │   ├── context_window.ex   # Token budget allocation + compaction
 │   │   │   └── architect.ex        # Two-model architect/editor workflow
-│   │   ├── tools/                  # 12 Jido.Action tool modules
+│   │   ├── agent_loop.ex           # Shared ReAct loop (sessions + team agents)
+│   │   ├── teams/
+│   │   │   ├── supervisor.ex       # Registry + DynamicSupervisor + RateLimiter
+│   │   │   ├── agent.ex            # Agent GenServer (team member runtime)
+│   │   │   ├── manager.ex          # Team lifecycle API (create, spawn, dissolve)
+│   │   │   ├── role.ex             # Role definitions (lead, researcher, coder, reviewer, tester)
+│   │   │   ├── rate_limiter.ex     # Token bucket + per-team/per-agent budget
+│   │   │   ├── comms.ex            # PubSub utilities for team communication
+│   │   │   ├── context.ex          # ETS shared state per team
+│   │   │   ├── context_keeper.ex   # Holds offloaded context at full fidelity
+│   │   │   ├── context_offload.ex  # Topic boundary detection + offloading logic
+│   │   │   ├── context_retrieval.ex # Cross-agent context discovery + retrieval
+│   │   │   ├── tasks.ex            # Task CRUD + scheduling
+│   │   │   └── model_router.ex     # Model selection + opt-in escalation
+│   │   ├── tools/                  # Jido.Action tool modules
 │   │   │   ├── registry.ex         # Tool discovery + Jido.Exec dispatch
-│   │   │   ├── file_read.ex
+│   │   │   ├── file_read.ex        # Core tools (12)
 │   │   │   ├── file_write.ex
 │   │   │   ├── file_edit.ex
 │   │   │   ├── file_search.ex
@@ -333,10 +350,19 @@ loom/
 │   │   │   ├── directory_list.ex
 │   │   │   ├── shell.ex
 │   │   │   ├── git.ex
-│   │   │   ├── lsp_diagnostics.ex  # LSP compiler diagnostics
+│   │   │   ├── lsp_diagnostics.ex
 │   │   │   ├── decision_log.ex
 │   │   │   ├── decision_query.ex
-│   │   │   └── sub_agent.ex
+│   │   │   ├── sub_agent.ex
+│   │   │   ├── team_spawn.ex       # Team lead tools
+│   │   │   ├── team_assign.ex
+│   │   │   ├── team_dissolve.ex
+│   │   │   ├── team_progress.ex
+│   │   │   ├── peer_message.ex     # Peer communication tools
+│   │   │   ├── peer_discovery.ex
+│   │   │   ├── peer_review.ex
+│   │   │   ├── peer_claim_region.ex
+│   │   │   └── peer_create_task.ex
 │   │   ├── decisions/              # Deciduous-inspired decision graph
 │   │   │   ├── graph.ex            # CRUD + queries
 │   │   │   ├── pulse.ex            # Health reports
@@ -399,7 +425,7 @@ loom/
 └── docs/                           # Architecture + migration docs
 ```
 
-**70 source files. ~9,600 LOC application code. ~4,400 LOC tests. 335 tests.**
+**~100 source files. ~15,000 LOC application code. ~6,000 LOC tests.**
 
 ---
 
