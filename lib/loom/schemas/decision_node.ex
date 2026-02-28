@@ -16,6 +16,7 @@ defmodule Loom.Schemas.DecisionNode do
     field :status, Ecto.Enum, values: [:active, :superseded, :abandoned], default: :active
     field :confidence, :integer
     field :metadata, :map, default: %{}
+    field :agent_name, :string
 
     belongs_to :session, Loom.Schemas.Session
 
@@ -23,7 +24,7 @@ defmodule Loom.Schemas.DecisionNode do
   end
 
   @required_fields ~w(node_type title)a
-  @optional_fields ~w(description status confidence metadata session_id change_id)a
+  @optional_fields ~w(description status confidence metadata session_id change_id agent_name)a
 
   def changeset(node, attrs) do
     node
