@@ -36,7 +36,12 @@ defmodule Loom.RepoIntel.RepoMap do
     mentioned_files = Keyword.get(opts, :mentioned_files, [])
     keywords = Keyword.get(opts, :keywords, [])
 
-    entries = Index.list_files()
+    entries =
+      try do
+        Index.list_files()
+      catch
+        :exit, _ -> []
+      end
 
     ranked =
       rank_files(entries,

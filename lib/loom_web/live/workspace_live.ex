@@ -16,6 +16,11 @@ defmodule LoomWeb.WorkspaceLive do
         model: @default_model,
         input_text: "",
         current_tool: nil,
+        selected_file: nil,
+        file_content: nil,
+        diffs: [],
+        shell_commands: [],
+        permission_request: nil,
         page_title: "Loom Workspace"
       )
 
@@ -40,11 +45,12 @@ defmodule LoomWeb.WorkspaceLive do
         model: socket.assigns.model,
         project_path: project_path,
         tools: tools,
-        auto_approve: true
+        auto_approve: false
       )
 
     if connected?(socket) do
       Session.subscribe(session_id)
+      ensure_index_started(project_path)
     end
 
     # Load existing history
@@ -84,6 +90,7 @@ defmodule LoomWeb.WorkspaceLive do
   end
 
   def handle_event("change_model", %{"model" => model}, socket) do
+    Session.update_model(socket.assigns.session_id, model)
     {:noreply, assign(socket, model: model)}
   end
 
@@ -93,6 +100,10 @@ defmodule LoomWeb.WorkspaceLive do
 
   def handle_event("select_session", %{"id" => id}, socket) do
     {:noreply, push_navigate(socket, to: ~p"/sessions/#{id}")}
+  end
+
+  def handle_event("deselect_file", _params, socket) do
+    {:noreply, assign(socket, selected_file: nil, file_content: nil)}
   end
 
   def handle_event("permission_response", %{"action" => _action}, socket) do
@@ -111,15 +122,48 @@ defmodule LoomWeb.WorkspaceLive do
   end
 
   def handle_info({:tool_executing, _session_id, tool_name}, socket) do
-    {:noreply, assign(socket, current_tool: tool_name)}
+    {:noreply, assign(socket, current_tool: tool_name, current_tool_name: tool_name)}
   end
 
-  def handle_info({:tool_complete, _session_id, _tool_name, _result}, socket) do
-    {:noreply, assign(socket, current_tool: nil)}
+  def handle_info({:tool_complete, _session_id, tool_name, result}, socket) do
+    socket = assign(socket, current_tool: nil)
+
+    socket =
+      cond do
+        tool_name in ["file_edit", "file_write"] ->
+          diff = LoomWeb.DiffComponent.parse_edit_result(result)
+          assign(socket, diffs: socket.assigns.diffs ++ [diff])
+
+        tool_name == "shell" ->
+          cmd = parse_shell_result(result)
+          assign(socket, shell_commands: socket.assigns.shell_commands ++ [cmd])
+
+        true ->
+          socket
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:permission_request, _session_id, tool_name, tool_path}, socket) do
+    {:noreply, assign(socket, permission_request: %{tool_name: tool_name, tool_path: tool_path})}
+  end
+
+  def handle_info({:select_file, path}, socket) do
+    abs_path = Path.join(socket.assigns.project_path, path)
+
+    file_content =
+      case File.read(abs_path) do
+        {:ok, content} -> content
+        {:error, _} -> "Error: could not read file"
+      end
+
+    {:noreply, assign(socket, selected_file: path, file_content: file_content)}
   end
 
   # Messages from child components
   def handle_info({:change_model, model}, socket) do
+    Session.update_model(socket.assigns.session_id, model)
     {:noreply, assign(socket, model: model)}
   end
 
@@ -131,10 +175,9 @@ defmodule LoomWeb.WorkspaceLive do
     {:noreply, push_navigate(socket, to: ~p"/sessions/#{session_id}")}
   end
 
-  def handle_info({:permission_response, action, tool_name, tool_path}, socket) do
-    # Will be wired up when permission prompting goes through LiveView
-    _ = {action, tool_name, tool_path}
-    {:noreply, socket}
+  def handle_info({:permission_response, action, _tool_name, _tool_path}, socket) do
+    Session.respond_to_permission(socket.assigns.session_id, action)
+    {:noreply, assign(socket, permission_request: nil)}
   end
 
   # Handle async task completion
@@ -152,6 +195,13 @@ defmodule LoomWeb.WorkspaceLive do
   def render(assigns) do
     ~H"""
     <div class="flex flex-col h-screen bg-gray-950 text-gray-100">
+      <.live_component
+        :if={@permission_request}
+        module={LoomWeb.PermissionComponent}
+        id="permission-modal"
+        tool_name={@permission_request.tool_name}
+        tool_path={@permission_request.tool_path}
+      />
       <header class="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-800">
         <div class="flex items-center gap-3">
           <span class="text-lg font-semibold text-indigo-400">Loom</span>
@@ -199,7 +249,7 @@ defmodule LoomWeb.WorkspaceLive do
         <div class="w-96 border-l border-gray-800 flex flex-col bg-gray-900/50">
           <div class="flex border-b border-gray-800">
             <button
-              :for={tab <- [:files, :diff, :graph]}
+              :for={tab <- [:files, :diff, :terminal, :graph]}
               phx-click="switch_tab"
               phx-value-tab={tab}
               class={"px-3 py-2 text-xs font-medium #{if @active_tab == tab, do: "text-indigo-400 border-b-2 border-indigo-400", else: "text-gray-500 hover:text-gray-300"}"}
@@ -230,16 +280,33 @@ defmodule LoomWeb.WorkspaceLive do
 
   defp tab_label(:files), do: "Files"
   defp tab_label(:diff), do: "Diff"
+  defp tab_label(:terminal), do: "Terminal"
   defp tab_label(:graph), do: "Graph"
 
   defp render_tab(:files, assigns) do
     ~H"""
-    <.live_component
-      module={LoomWeb.FileTreeComponent}
-      id="file-tree"
-      project_path={assigns[:project_path] || File.cwd!()}
-      session_id={@session_id}
-    />
+    <div class="flex flex-col h-full">
+      <div class={if @selected_file, do: "h-1/2 overflow-auto", else: "flex-1"}>
+        <.live_component
+          module={LoomWeb.FileTreeComponent}
+          id="file-tree"
+          project_path={assigns[:project_path] || File.cwd!()}
+          session_id={@session_id}
+        />
+      </div>
+      <div :if={@selected_file} class="h-1/2 border-t border-gray-800 flex flex-col">
+        <div class="flex items-center justify-between px-3 py-1.5 bg-gray-900/80 border-b border-gray-800">
+          <span class="text-xs text-indigo-400 font-mono truncate">{@selected_file}</span>
+          <button
+            phx-click="deselect_file"
+            class="text-gray-500 hover:text-gray-300 text-xs px-1"
+          >
+            &times;
+          </button>
+        </div>
+        <pre class="flex-1 overflow-auto p-3 text-xs font-mono text-gray-300 whitespace-pre">{@file_content}</pre>
+      </div>
+    </div>
     """
   end
 
@@ -248,7 +315,17 @@ defmodule LoomWeb.WorkspaceLive do
     <.live_component
       module={LoomWeb.DiffComponent}
       id="diff-viewer"
-      diffs={assigns[:diffs] || []}
+      diffs={@diffs}
+    />
+    """
+  end
+
+  defp render_tab(:terminal, assigns) do
+    ~H"""
+    <.live_component
+      module={LoomWeb.TerminalComponent}
+      id="terminal"
+      commands={@shell_commands}
     />
     """
   end
@@ -263,7 +340,32 @@ defmodule LoomWeb.WorkspaceLive do
     """
   end
 
+  defp ensure_index_started(project_path) do
+    case GenServer.whereis(Loom.RepoIntel.Index) do
+      nil ->
+        Loom.RepoIntel.Index.start_link(project_path: project_path)
+
+      _pid ->
+        :ok
+    end
+  end
+
   defp short_id(id) do
     String.slice(id, 0, 8)
+  end
+
+  defp parse_shell_result(result) when is_binary(result) do
+    case String.split(result, "\n", parts: 2) do
+      ["Exit code: " <> code_str, output] ->
+        exit_code = String.to_integer(String.trim(code_str))
+        %{command: "(shell)", exit_code: exit_code, output: output}
+
+      _ ->
+        %{command: "(shell)", exit_code: 0, output: result}
+    end
+  end
+
+  defp parse_shell_result(_result) do
+    %{command: "(shell)", exit_code: 0, output: ""}
   end
 end
