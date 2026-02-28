@@ -201,9 +201,6 @@ cd loom
 # Install deps and set up the database
 mix setup
 
-# Build the CLI escript
-mix escript.build
-
 # Start the web UI (optional)
 mix phx.server
 # → http://localhost:4200
