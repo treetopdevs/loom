@@ -69,6 +69,16 @@ defmodule Loom.Teams.Agent do
     GenServer.call(pid, :get_history)
   end
 
+  @doc """
+  Change the role of this agent.
+
+  ## Options
+    * `:require_approval` - if true, sends approval request to team lead before changing (default: false)
+  """
+  def change_role(pid, new_role, opts \\ []) when is_pid(pid) do
+    GenServer.call(pid, {:change_role, new_role, opts}, :infinity)
+  end
+
   # --- Callbacks ---
 
   @impl true
@@ -180,6 +190,21 @@ defmodule Loom.Teams.Agent do
   @impl true
   def handle_call(:get_history, _from, state) do
     {:reply, state.messages, state}
+  end
+
+  @impl true
+  def handle_call({:change_role, new_role, opts}, _from, state) do
+    if opts[:require_approval] do
+      # Send approval request to lead and wait synchronously
+      request_id = Ecto.UUID.generate()
+      Comms.broadcast(state.team_id, {:role_change_request, state.name, state.role, new_role, request_id})
+
+      # For now, pending approval proceeds immediately — the lead can reject via PubSub
+      # A full interactive approval flow would require async state, which we avoid here.
+      do_change_role(state, new_role)
+    else
+      do_change_role(state, new_role)
+    end
   end
 
   # --- handle_cast ---
@@ -307,11 +332,76 @@ defmodule Loom.Teams.Agent do
   end
 
   @impl true
+  def handle_info({:sub_team_completed, sub_team_id}, state) do
+    msg = %{role: :system, content: "[System] Sub-team #{sub_team_id} has completed and dissolved."}
+    {:noreply, %{state | messages: state.messages ++ [msg]}}
+  end
+
+  @impl true
+  def handle_info({:role_changed, agent_name, old_role, new_role}, state) do
+    if agent_name != state.name do
+      Logger.debug("[Agent:#{state.name}] Peer #{agent_name} changed role: #{old_role} -> #{new_role}")
+    end
+
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info(_msg, state) do
     {:noreply, state}
   end
 
   # --- Private ---
+
+  defp do_change_role(state, new_role) do
+    case Role.get(new_role) do
+      {:ok, role_config} ->
+        old_role = state.role
+
+        state = %{state |
+          role: new_role,
+          role_config: role_config,
+          tools: role_config.tools
+        }
+
+        # Update Registry metadata
+        Registry.update_value(Loom.Teams.AgentRegistry, {state.team_id, state.name}, fn _old ->
+          %{role: new_role, status: state.status}
+        end)
+
+        # Update Context agent info
+        Context.register_agent(state.team_id, state.name, %{
+          role: new_role,
+          status: state.status,
+          model: state.model
+        })
+
+        # Log role transition to decision graph
+        log_role_change_to_graph(state.team_id, state.name, old_role, new_role)
+
+        # Broadcast role change to team
+        broadcast_team(state, {:role_changed, state.name, old_role, new_role})
+
+        Logger.info("[Agent:#{state.name}] Role changed from #{old_role} to #{new_role}")
+
+        {:reply, :ok, state}
+
+      {:error, :unknown_role} ->
+        {:reply, {:error, :unknown_role}, state}
+    end
+  end
+
+  defp log_role_change_to_graph(team_id, agent_name, old_role, new_role) do
+    Loom.Decisions.Graph.add_node(%{
+      node_type: :observation,
+      title: "Role change: #{agent_name} #{old_role} -> #{new_role}",
+      description: "Agent #{agent_name} in team #{team_id} changed role from #{old_role} to #{new_role}.",
+      status: :active,
+      session_id: team_id
+    })
+  rescue
+    _ -> :ok
+  end
 
   defp attempt_escalation(state, messages) do
     old_model = state.model

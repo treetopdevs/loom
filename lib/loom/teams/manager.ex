@@ -1,9 +1,11 @@
 defmodule Loom.Teams.Manager do
   @moduledoc "Public API for team lifecycle management."
 
-  alias Loom.Teams.TableRegistry
+  alias Loom.Teams.{Comms, TableRegistry}
 
   require Logger
+
+  @default_max_nesting_depth 2
 
   @doc """
   Create a new team.
@@ -26,11 +28,77 @@ defmodule Loom.Teams.Manager do
       id: team_id,
       name: name,
       project_path: opts[:project_path],
+      parent_team_id: nil,
+      depth: 0,
       created_at: DateTime.utc_now()
     }})
 
     Logger.info("[Teams] Created team #{name} (#{team_id})")
     {:ok, team_id}
+  end
+
+  @doc """
+  Create a sub-team under an existing parent team.
+
+  ## Options
+    * `:name` - human-readable sub-team name (required)
+    * `:project_path` - path to project (optional, inherited from parent)
+    * `:max_depth` - maximum nesting depth (default: #{@default_max_nesting_depth})
+
+  Returns `{:ok, sub_team_id}` or `{:error, reason}`.
+  """
+  def create_sub_team(parent_team_id, spawning_agent, opts) do
+    name = opts[:name] || raise ArgumentError, ":name is required"
+    max_depth = opts[:max_depth] || @default_max_nesting_depth
+
+    case get_team_meta(parent_team_id) do
+      {:ok, parent_meta} ->
+        parent_depth = parent_meta[:depth] || 0
+
+        if parent_depth + 1 > max_depth do
+          {:error, :max_depth_exceeded}
+        else
+          sub_team_id = generate_team_id(name)
+          project_path = opts[:project_path] || parent_meta[:project_path]
+          {:ok, ref} = TableRegistry.create_table(sub_team_id)
+
+          :ets.insert(ref, {:meta, %{
+            id: sub_team_id,
+            name: name,
+            project_path: project_path,
+            parent_team_id: parent_team_id,
+            depth: parent_depth + 1,
+            spawning_agent: spawning_agent,
+            created_at: DateTime.utc_now()
+          }})
+
+          # Register sub-team relationship in parent's ETS
+          parent_table = TableRegistry.get_table!(parent_team_id)
+          existing = get_sub_team_ids(parent_team_id)
+          :ets.insert(parent_table, {:sub_teams, [sub_team_id | existing]})
+
+          Logger.info("[Teams] Created sub-team #{name} (#{sub_team_id}) under #{parent_team_id}")
+          {:ok, sub_team_id}
+        end
+
+      :error ->
+        {:error, :parent_not_found}
+    end
+  end
+
+  @doc "List sub-team IDs for a given parent team."
+  @spec list_sub_teams(String.t()) :: [String.t()]
+  def list_sub_teams(parent_team_id) do
+    get_sub_team_ids(parent_team_id)
+  end
+
+  @doc "Get the parent team ID for a given team, or nil if it's a root team."
+  @spec get_parent_team(String.t()) :: {:ok, String.t()} | :none
+  def get_parent_team(team_id) do
+    case get_team_meta(team_id) do
+      {:ok, %{parent_team_id: parent_id}} when is_binary(parent_id) -> {:ok, parent_id}
+      _ -> :none
+    end
   end
 
   @doc """
@@ -114,14 +182,25 @@ defmodule Loom.Teams.Manager do
     end
   end
 
-  @doc "Dissolve a team — stop all agents, clean up ETS, broadcast dissolution."
+  @doc "Dissolve a team — cascade to sub-teams, stop all agents, clean up ETS, broadcast dissolution."
   def dissolve_team(team_id) do
+    # Cascade: dissolve all sub-teams first (depth-first)
+    for sub_id <- list_sub_teams(team_id) do
+      dissolve_team(sub_id)
+    end
+
+    # Notify parent team's spawning agent if this is a sub-team
+    notify_parent_on_dissolution(team_id)
+
     # Stop all agents
     agents = list_agents(team_id)
     Enum.each(agents, fn agent -> stop_agent(team_id, agent.name) end)
 
     # Reset rate limiter budget
     Loom.Teams.RateLimiter.reset_team(team_id)
+
+    # Remove from parent's sub_teams list
+    remove_from_parent(team_id)
 
     # Delete ETS table
     TableRegistry.delete_table(team_id)
@@ -142,15 +221,62 @@ defmodule Loom.Teams.Manager do
   end
 
   defp get_team_project_path(team_id) do
+    case get_team_meta(team_id) do
+      {:ok, meta} -> meta[:project_path]
+      :error -> nil
+    end
+  end
+
+  defp get_team_meta(team_id) do
     case TableRegistry.get_table(team_id) do
       {:ok, table} ->
         case :ets.lookup(table, :meta) do
-          [{:meta, meta}] -> meta[:project_path]
-          _ -> nil
+          [{:meta, meta}] -> {:ok, meta}
+          _ -> :error
         end
 
       :error ->
-        nil
+        :error
+    end
+  end
+
+  defp get_sub_team_ids(parent_team_id) do
+    case TableRegistry.get_table(parent_team_id) do
+      {:ok, table} ->
+        case :ets.lookup(table, :sub_teams) do
+          [{:sub_teams, ids}] -> ids
+          [] -> []
+        end
+
+      :error ->
+        []
+    end
+  end
+
+  defp remove_from_parent(team_id) do
+    case get_team_meta(team_id) do
+      {:ok, %{parent_team_id: parent_id}} when is_binary(parent_id) ->
+        case TableRegistry.get_table(parent_id) do
+          {:ok, table} ->
+            updated = get_sub_team_ids(parent_id) -- [team_id]
+            :ets.insert(table, {:sub_teams, updated})
+
+          :error ->
+            :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp notify_parent_on_dissolution(team_id) do
+    case get_team_meta(team_id) do
+      {:ok, %{parent_team_id: parent_id, spawning_agent: agent}} when is_binary(parent_id) and not is_nil(agent) ->
+        Comms.send_to(parent_id, agent, {:sub_team_completed, team_id})
+
+      _ ->
+        :ok
     end
   end
 end
