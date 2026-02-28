@@ -1,34 +1,27 @@
 defmodule Loom.Tools.FileRead do
   @moduledoc "Reads a file and returns its contents with line numbers."
-  @behaviour Loom.Tool
 
-  @impl true
-  def definition do
-    %{
-      name: "file_read",
-      description:
-        "Reads a file from the project. Returns contents formatted with line numbers. " <>
-          "Use offset and limit to read specific sections of large files.",
-      parameters: %{
-        type: "object",
-        required: ["file_path"],
-        properties: %{
-          file_path: %{type: "string", description: "Path to the file (relative to project root)"},
-          offset: %{type: "integer", description: "Line number to start reading from (1-based)"},
-          limit: %{type: "integer", description: "Maximum number of lines to return"}
-        }
-      }
-    }
-  end
+  use Jido.Action,
+    name: "file_read",
+    description:
+      "Reads a file from the project. Returns contents formatted with line numbers. " <>
+        "Use offset and limit to read specific sections of large files.",
+    schema: [
+      file_path: [type: :string, required: true, doc: "Path to the file (relative to project root)"],
+      offset: [type: :integer, doc: "Line number to start reading from (1-based)"],
+      limit: [type: :integer, doc: "Maximum number of lines to return"]
+    ]
+
+  import Loom.Tool, only: [safe_path!: 2, param!: 2, param: 2]
 
   @impl true
   def run(params, context) do
-    project_path = Map.fetch!(context, :project_path)
-    file_path = Map.fetch!(params, "file_path")
-    offset = Map.get(params, "offset")
-    limit = Map.get(params, "limit")
+    project_path = param!(context, :project_path)
+    file_path = param!(params, :file_path)
+    offset = param(params, :offset)
+    limit = param(params, :limit)
 
-    full_path = Loom.Tool.safe_path!(file_path, project_path)
+    full_path = safe_path!(file_path, project_path)
 
     case File.read(full_path) do
       {:ok, content} ->
@@ -53,7 +46,7 @@ defmodule Loom.Tools.FileRead do
 
         shown = length(selected)
         header = "#{full_path} (#{total} lines total, showing #{shown})\n"
-        {:ok, header <> formatted}
+        {:ok, %{result: header <> formatted}}
 
       {:error, :enoent} ->
         {:error, "File not found: #{full_path}"}

@@ -1,29 +1,22 @@
 defmodule Loom.Tools.DirectoryList do
   @moduledoc "Lists directory contents with file metadata."
-  @behaviour Loom.Tool
 
-  @impl true
-  def definition do
-    %{
-      name: "directory_list",
-      description:
-        "Lists the contents of a directory, showing file type, size, and modification time.",
-      parameters: %{
-        type: "object",
-        required: ["path"],
-        properties: %{
-          path: %{type: "string", description: "Directory path (relative to project root)"}
-        }
-      }
-    }
-  end
+  use Jido.Action,
+    name: "directory_list",
+    description:
+      "Lists the contents of a directory, showing file type, size, and modification time.",
+    schema: [
+      path: [type: :string, required: true, doc: "Directory path (relative to project root)"]
+    ]
+
+  import Loom.Tool, only: [safe_path!: 2, param!: 2]
 
   @impl true
   def run(params, context) do
-    project_path = Map.fetch!(context, :project_path)
-    dir_path = Map.fetch!(params, "path")
+    project_path = param!(context, :project_path)
+    dir_path = param!(params, :path)
 
-    full_path = Loom.Tool.safe_path!(dir_path, project_path)
+    full_path = safe_path!(dir_path, project_path)
 
     case File.ls(full_path) do
       {:ok, entries} ->
@@ -37,7 +30,7 @@ defmodule Loom.Tools.DirectoryList do
 
         rel = Path.relative_to(full_path, project_path)
         header = "#{rel}/ (#{length(lines)} entries)\n"
-        {:ok, header <> Enum.join(lines, "\n")}
+        {:ok, %{result: header <> Enum.join(lines, "\n")}}
 
       {:error, :enoent} ->
         {:error, "Directory not found: #{full_path}"}

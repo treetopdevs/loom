@@ -18,7 +18,7 @@ defmodule Loom.MixProject do
 
   def application do
     [
-      extra_applications: [:logger],
+      extra_applications: [:logger, :runtime_tools],
       mod: {Loom.Application, []}
     ]
   end
@@ -32,6 +32,13 @@ defmodule Loom.MixProject do
 
   defp deps do
     [
+      # Jido ecosystem
+      {:jido, "~> 2.0"},
+      {:jido_action, "~> 2.0"},
+      {:jido_signal, "~> 2.0"},
+      {:jido_ai, github: "agentjido/jido_ai", branch: "main"},
+      {:jido_shell, github: "agentjido/jido_shell"},
+
       # LLM client
       {:req_llm, "~> 1.6"},
       {:llm_db, ">= 0.0.0"},
@@ -60,8 +67,23 @@ defmodule Loom.MixProject do
       # Telemetry
       {:telemetry, "~> 1.3"},
 
+      # Phoenix / LiveView
+      {:phoenix, "~> 1.7"},
+      {:phoenix_html, "~> 4.2"},
+      {:phoenix_live_view, "~> 1.0"},
+      {:phoenix_live_reload, "~> 1.5", only: :dev},
+      {:phoenix_live_dashboard, "~> 0.8"},
+      {:esbuild, "~> 0.8", runtime: Mix.env() == :dev},
+      {:tailwind, "~> 0.2", runtime: Mix.env() == :dev},
+      {:heroicons, github: "tailwindlabs/heroicons", tag: "v2.1.1", sparse: "optimized", app: false, compile: false, depth: 1},
+      {:plug_cowboy, "~> 2.7"},
+      {:jason, "~> 1.4"},
+      {:dns_cluster, "~> 0.1"},
+      {:bandit, "~> 1.6"},
+
       # Dev/Test
-      {:mox, "~> 1.0", only: :test}
+      {:mox, "~> 1.0", only: :test},
+      {:floki, "~> 0.37", only: :test}
     ]
   end
 

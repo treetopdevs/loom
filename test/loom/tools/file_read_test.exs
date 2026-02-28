@@ -18,17 +18,15 @@ defmodule Loom.Tools.FileReadTest do
     %{project_path: tmp_dir, sample_file: file}
   end
 
-  test "definition returns valid tool definition" do
-    defn = FileRead.definition()
-    assert defn.name == "file_read"
-    assert is_binary(defn.description)
-    assert defn.parameters.required == ["file_path"]
+  test "action metadata is correct" do
+    assert FileRead.name() == "file_read"
+    assert is_binary(FileRead.description())
   end
 
   @tag :tmp_dir
   test "reads entire file with line numbers", %{project_path: proj} do
     params = %{"file_path" => "sample.txt"}
-    assert {:ok, result} = FileRead.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = FileRead.run(params, %{project_path: proj})
     assert result =~ "20 lines total"
     assert result =~ "Line 1"
     assert result =~ "Line 20"
@@ -37,7 +35,7 @@ defmodule Loom.Tools.FileReadTest do
   @tag :tmp_dir
   test "reads file with offset", %{project_path: proj} do
     params = %{"file_path" => "sample.txt", "offset" => 5}
-    assert {:ok, result} = FileRead.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = FileRead.run(params, %{project_path: proj})
     assert result =~ "Line 5"
     assert result =~ "Line 20"
     refute result =~ "\tLine 4\n"
@@ -46,7 +44,7 @@ defmodule Loom.Tools.FileReadTest do
   @tag :tmp_dir
   test "reads file with limit", %{project_path: proj} do
     params = %{"file_path" => "sample.txt", "limit" => 3}
-    assert {:ok, result} = FileRead.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = FileRead.run(params, %{project_path: proj})
     assert result =~ "showing 3"
     assert result =~ "Line 1"
     assert result =~ "Line 3"
@@ -56,7 +54,7 @@ defmodule Loom.Tools.FileReadTest do
   @tag :tmp_dir
   test "reads file with offset and limit", %{project_path: proj} do
     params = %{"file_path" => "sample.txt", "offset" => 10, "limit" => 3}
-    assert {:ok, result} = FileRead.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = FileRead.run(params, %{project_path: proj})
     assert result =~ "showing 3"
     assert result =~ "Line 10"
     assert result =~ "Line 12"

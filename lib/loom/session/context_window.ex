@@ -5,6 +5,130 @@ defmodule Loom.Session.ContextWindow do
   @default_reserved_output 4096
   @chars_per_token 4
 
+  @zone_defaults %{
+    system_prompt: 2048,
+    decision_context: 1024,
+    repo_map: 2048,
+    tool_definitions: 2048,
+    reserved_output: 4096
+  }
+
+  @doc """
+  Allocate the token budget across zones for a given model.
+
+  Returns a map with token allocations for each zone plus the remaining
+  tokens available for conversation history.
+
+  Options:
+    - `:max_decision_tokens` - tokens for decision context (default 1024)
+    - `:max_repo_map_tokens` - tokens for repo map (default 2048)
+    - `:reserved_output` - tokens reserved for output (default 4096)
+  """
+  @spec allocate_budget(String.t() | nil, keyword()) :: map()
+  def allocate_budget(model, opts \\ []) do
+    total = model_limit(model)
+
+    zones = %{
+      system_prompt: @zone_defaults.system_prompt,
+      decision_context: Keyword.get(opts, :max_decision_tokens, @zone_defaults.decision_context),
+      repo_map: Keyword.get(opts, :max_repo_map_tokens, @zone_defaults.repo_map),
+      tool_definitions: @zone_defaults.tool_definitions,
+      reserved_output: Keyword.get(opts, :reserved_output, @zone_defaults.reserved_output)
+    }
+
+    zone_sum =
+      zones.system_prompt + zones.decision_context + zones.repo_map +
+        zones.tool_definitions + zones.reserved_output
+
+    history = max(total - zone_sum, 0)
+
+    Map.put(zones, :history, history)
+  end
+
+  @doc """
+  Inject decision context into system prompt parts.
+
+  Calls `Loom.Decisions.ContextBuilder.build/1` if available,
+  otherwise returns system_parts unchanged.
+  """
+  @spec inject_decision_context([String.t()], String.t() | nil) :: [String.t()]
+  def inject_decision_context(system_parts, nil), do: system_parts
+
+  def inject_decision_context(system_parts, session_id) do
+    if Code.ensure_loaded?(Loom.Decisions.ContextBuilder) &&
+         function_exported?(Loom.Decisions.ContextBuilder, :build, 1) do
+      case Loom.Decisions.ContextBuilder.build(session_id) do
+        {:ok, context} when is_binary(context) and context != "" ->
+          system_parts ++ [context]
+
+        _ ->
+          system_parts
+      end
+    else
+      system_parts
+    end
+  end
+
+  @doc """
+  Inject repo map into system prompt parts.
+
+  Calls `Loom.RepoIntel.RepoMap.generate/2` if available,
+  otherwise returns system_parts unchanged.
+  """
+  @spec inject_repo_map([String.t()], String.t() | nil, keyword()) :: [String.t()]
+  def inject_repo_map(system_parts, project_path, opts \\ [])
+
+  def inject_repo_map(system_parts, nil, _opts), do: system_parts
+
+  def inject_repo_map(system_parts, project_path, opts) do
+    if Code.ensure_loaded?(Loom.RepoIntel.RepoMap) &&
+         function_exported?(Loom.RepoIntel.RepoMap, :generate, 2) do
+      try do
+        case Loom.RepoIntel.RepoMap.generate(project_path, opts) do
+          {:ok, repo_map} when is_binary(repo_map) and repo_map != "" ->
+            system_parts ++ [repo_map]
+
+          _ ->
+            system_parts
+        end
+      catch
+        :exit, _ -> system_parts
+      end
+    else
+      system_parts
+    end
+  end
+
+  @doc """
+  Inject project rules into system prompt parts.
+
+  Calls `Loom.ProjectRules.load/1` and `Loom.ProjectRules.format_for_prompt/1`
+  if available, otherwise returns system_parts unchanged.
+  """
+  @spec inject_project_rules([String.t()], String.t() | nil) :: [String.t()]
+  def inject_project_rules(system_parts, nil), do: system_parts
+
+  def inject_project_rules(system_parts, project_path) do
+    if Code.ensure_loaded?(Loom.ProjectRules) &&
+         function_exported?(Loom.ProjectRules, :load, 1) do
+      case Loom.ProjectRules.load(project_path) do
+        {:ok, rules} ->
+          formatted = Loom.ProjectRules.format_for_prompt(rules)
+
+          if formatted != "" do
+            system_parts ++ [formatted]
+          else
+            system_parts
+          end
+
+        _ ->
+          system_parts
+      end
+    else
+      system_parts
+    end
+  end
+
   @doc """
   Build a windowed message list that fits within the model's context limit.
 
@@ -15,21 +139,62 @@ defmodule Loom.Session.ContextWindow do
     - `:model` - model string (e.g. "anthropic:claude-sonnet-4-6") for context limit lookup
     - `:max_tokens` - override the context limit
     - `:reserved_output` - tokens reserved for output (default 4096)
+    - `:session_id` - session ID for decision context injection
+    - `:project_path` - project path for repo map and rules injection
   """
   @spec build_messages([map()], String.t(), keyword()) :: [map()]
   def build_messages(messages, system_prompt, opts \\ []) do
-    max_tokens = opts[:max_tokens] || model_limit(opts[:model])
-    reserved_output = opts[:reserved_output] || @default_reserved_output
+    model = Keyword.get(opts, :model)
+    session_id = Keyword.get(opts, :session_id)
+    project_path = Keyword.get(opts, :project_path)
 
-    system_msg = %{role: :system, content: system_prompt}
-    system_tokens = estimate_tokens(system_prompt)
+    budget = allocate_budget(model, opts)
 
-    available = max_tokens - system_tokens - reserved_output
-    available = max(available, 0)
+    # Build enriched system prompt
+    system_parts = [system_prompt]
+    system_parts = inject_decision_context(system_parts, session_id)
+    system_parts = inject_repo_map(system_parts, project_path, max_tokens: budget.repo_map)
+    system_parts = inject_project_rules(system_parts, project_path)
+    enriched_system = Enum.join(system_parts, "\n\n")
+
+    system_msg = %{role: :system, content: enriched_system}
+
+    # Use explicit max_tokens if provided, otherwise compute from budget
+    max_tokens = Keyword.get(opts, :max_tokens)
+    reserved_output = Keyword.get(opts, :reserved_output, @default_reserved_output)
+
+    available =
+      if max_tokens do
+        # Legacy path: explicit max_tokens overrides budget calculation
+        system_tokens = estimate_tokens(enriched_system)
+        max(max_tokens - system_tokens - reserved_output, 0)
+      else
+        # Budget-aware path: use the history allocation
+        budget.history
+      end
 
     recent_messages = select_recent(messages, available)
 
     [system_msg | recent_messages]
+  end
+
+  @doc """
+  Summarize old messages that have been evicted from the context window.
+
+  Currently a placeholder that creates a brief text summary.
+  Will be enhanced to call a weak model for actual summarization.
+  """
+  @spec summarize_old_messages([map()], keyword()) :: String.t()
+  def summarize_old_messages(messages, _opts \\ []) do
+    count = length(messages)
+
+    snippet =
+      messages
+      |> Enum.map(&message_content/1)
+      |> Enum.join(" ")
+      |> String.slice(0, 200)
+
+    "Summary of #{count} earlier messages: #{snippet}..."
   end
 
   @doc "Estimate token count for a string (rough: chars / 4)."

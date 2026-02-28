@@ -32,15 +32,15 @@ defmodule Loom.Tools.ContentSearchTest do
     %{project_path: tmp_dir}
   end
 
-  test "definition returns valid tool definition" do
-    defn = ContentSearch.definition()
-    assert defn.name == "content_search"
+  test "action metadata is correct" do
+    assert ContentSearch.name() == "content_search"
+    assert is_binary(ContentSearch.description())
   end
 
   @tag :tmp_dir
   test "finds matching lines across files", %{project_path: proj} do
     params = %{"pattern" => "def hello"}
-    assert {:ok, result} = ContentSearch.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = ContentSearch.run(params, %{project_path: proj})
     assert result =~ "app.ex"
     assert result =~ "helper.ex"
     assert result =~ "def hello"
@@ -49,7 +49,7 @@ defmodule Loom.Tools.ContentSearchTest do
   @tag :tmp_dir
   test "filters by glob", %{project_path: proj} do
     params = %{"pattern" => "def hello", "glob" => "*.ex"}
-    assert {:ok, result} = ContentSearch.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = ContentSearch.run(params, %{project_path: proj})
     assert result =~ "app.ex"
     refute result =~ "notes.txt"
   end
@@ -57,7 +57,7 @@ defmodule Loom.Tools.ContentSearchTest do
   @tag :tmp_dir
   test "searches in subdirectory", %{project_path: proj} do
     params = %{"pattern" => "defmodule", "path" => "lib"}
-    assert {:ok, result} = ContentSearch.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = ContentSearch.run(params, %{project_path: proj})
     assert result =~ "App"
     assert result =~ "Helper"
   end
@@ -65,7 +65,7 @@ defmodule Loom.Tools.ContentSearchTest do
   @tag :tmp_dir
   test "returns no matches message", %{project_path: proj} do
     params = %{"pattern" => "NONEXISTENT_STRING_XYZ"}
-    assert {:ok, result} = ContentSearch.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = ContentSearch.run(params, %{project_path: proj})
     assert result =~ "No matches"
   end
 
@@ -79,7 +79,7 @@ defmodule Loom.Tools.ContentSearchTest do
   @tag :tmp_dir
   test "includes line numbers", %{project_path: proj} do
     params = %{"pattern" => "goodbye"}
-    assert {:ok, result} = ContentSearch.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = ContentSearch.run(params, %{project_path: proj})
     # "def goodbye" is on line 6 of app.ex
     assert result =~ ":6:"
   end

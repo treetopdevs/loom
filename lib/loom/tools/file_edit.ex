@@ -1,47 +1,37 @@
 defmodule Loom.Tools.FileEdit do
   @moduledoc "Performs exact string replacements in a file."
-  @behaviour Loom.Tool
 
-  @impl true
-  def definition do
-    %{
-      name: "file_edit",
-      description:
-        "Performs exact string replacement in a file. By default, old_string must appear " <>
-          "exactly once in the file (to prevent ambiguous edits). Set replace_all to true " <>
-          "to replace every occurrence.",
-      parameters: %{
-        type: "object",
-        required: ["file_path", "old_string", "new_string"],
-        properties: %{
-          file_path: %{type: "string", description: "Path to the file (relative to project root)"},
-          old_string: %{type: "string", description: "The exact text to find and replace"},
-          new_string: %{type: "string", description: "The text to replace it with"},
-          replace_all: %{
-            type: "boolean",
-            description: "Replace all occurrences (default: false, requires unique match)"
-          }
-        }
-      }
-    }
-  end
+  use Jido.Action,
+    name: "file_edit",
+    description:
+      "Performs exact string replacement in a file. By default, old_string must appear " <>
+        "exactly once in the file (to prevent ambiguous edits). Set replace_all to true " <>
+        "to replace every occurrence.",
+    schema: [
+      file_path: [type: :string, required: true, doc: "Path to the file (relative to project root)"],
+      old_string: [type: :string, required: true, doc: "The exact text to find and replace"],
+      new_string: [type: :string, required: true, doc: "The text to replace it with"],
+      replace_all: [type: :boolean, doc: "Replace all occurrences (default: false, requires unique match)"]
+    ]
+
+  import Loom.Tool, only: [safe_path!: 2, param!: 2, param: 3]
 
   @impl true
   def run(params, context) do
-    project_path = Map.fetch!(context, :project_path)
-    file_path = Map.fetch!(params, "file_path")
-    old_string = Map.fetch!(params, "old_string")
-    new_string = Map.fetch!(params, "new_string")
-    replace_all = Map.get(params, "replace_all", false)
+    project_path = param!(context, :project_path)
+    file_path = param!(params, :file_path)
+    old_string = param!(params, :old_string)
+    new_string = param!(params, :new_string)
+    replace_all = param(params, :replace_all, false)
 
-    full_path = Loom.Tool.safe_path!(file_path, project_path)
+    full_path = safe_path!(file_path, project_path)
 
     with {:ok, content} <- read_file(full_path),
          :ok <- validate_match(content, old_string, replace_all),
          new_content <- apply_replacement(content, old_string, new_string, replace_all),
          :ok <- File.write(full_path, new_content) do
       count = occurrence_count(content, old_string)
-      {:ok, "Replaced #{count} occurrence(s) in #{full_path}"}
+      {:ok, %{result: "Replaced #{count} occurrence(s) in #{full_path}"}}
     end
   rescue
     e in ArgumentError -> {:error, e.message}

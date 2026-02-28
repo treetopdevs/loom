@@ -8,16 +8,15 @@ defmodule Loom.Tools.ShellTest do
     %{project_path: tmp_dir}
   end
 
-  test "definition returns valid tool definition" do
-    defn = Shell.definition()
-    assert defn.name == "shell"
-    assert "command" in defn.parameters.required
+  test "action metadata is correct" do
+    assert Shell.name() == "shell"
+    assert is_binary(Shell.description())
   end
 
   @tag :tmp_dir
   test "runs a simple command", %{project_path: proj} do
     params = %{"command" => "echo hello"}
-    assert {:ok, result} = Shell.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = Shell.run(params, %{project_path: proj})
     assert result =~ "Exit code: 0"
     assert result =~ "hello"
   end
@@ -25,7 +24,7 @@ defmodule Loom.Tools.ShellTest do
   @tag :tmp_dir
   test "captures stderr in output", %{project_path: proj} do
     params = %{"command" => "echo error >&2"}
-    assert {:ok, result} = Shell.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = Shell.run(params, %{project_path: proj})
     assert result =~ "error"
   end
 
@@ -40,7 +39,7 @@ defmodule Loom.Tools.ShellTest do
   test "runs command in project directory", %{project_path: proj} do
     File.write!(Path.join(proj, "marker.txt"), "found")
     params = %{"command" => "cat marker.txt"}
-    assert {:ok, result} = Shell.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = Shell.run(params, %{project_path: proj})
     assert result =~ "found"
   end
 
@@ -55,7 +54,7 @@ defmodule Loom.Tools.ShellTest do
   test "truncates large output", %{project_path: proj} do
     # Generate output larger than 10K chars
     params = %{"command" => "yes | head -5000"}
-    assert {:ok, result} = Shell.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = Shell.run(params, %{project_path: proj})
     assert result =~ "truncated"
   end
 end

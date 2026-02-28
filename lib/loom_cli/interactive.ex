@@ -4,6 +4,9 @@ defmodule LoomCli.Interactive do
   """
 
   alias LoomCli.Renderer
+  alias Loom.Session
+  alias Loom.Session.Manager
+  alias Loom.Tools.Registry
 
   @doc """
   Start an interactive REPL session.
@@ -11,9 +14,7 @@ defmodule LoomCli.Interactive do
   def start(opts) do
     Renderer.render_welcome(opts)
 
-    # TODO: Start or resume a session via Session.Manager when available
-    session_pid = nil
-
+    session_pid = start_or_resume_session(opts)
     loop(session_pid, opts)
   end
 
@@ -26,15 +27,60 @@ defmodule LoomCli.Interactive do
     IO.puts(IO.ANSI.faint() <> "  Prompt: " <> IO.ANSI.reset() <> prompt)
     IO.puts("")
 
-    # TODO: Create session, send prompt, display response
-    IO.puts(
-      IO.ANSI.yellow() <>
-        "  Session engine not yet connected. Prompt received but cannot process." <>
-        IO.ANSI.reset()
-    )
+    session_pid = start_or_resume_session(opts)
+
+    case session_pid do
+      nil ->
+        Renderer.render_error("Failed to start session.")
+
+      pid ->
+        run_message(pid, prompt)
+        GenServer.stop(pid, :normal)
+    end
+  end
+
+  # --- Session Setup ---
+
+  defp start_or_resume_session(opts) do
+    project_path = opts[:project_path] || File.cwd!()
+    model = Loom.Config.get(:model, :default) || "anthropic:claude-sonnet-4-6"
+
+    session_opts = [
+      model: model,
+      project_path: project_path,
+      tools: Registry.all(),
+      auto_approve: opts[:auto_approve] || false
+    ]
+
+    session_opts =
+      if resume_id = opts[:resume] do
+        Keyword.put(session_opts, :session_id, resume_id)
+      else
+        session_opts
+      end
+
+    case Manager.start_session(session_opts) do
+      {:ok, pid} ->
+        IO.puts(
+          IO.ANSI.faint() <>
+            "  Session started (model: #{model})" <>
+            IO.ANSI.reset()
+        )
+
+        IO.puts("")
+        pid
+
+      {:error, reason} ->
+        Renderer.render_error("Failed to start session: #{inspect(reason)}")
+        nil
+    end
   end
 
   # --- REPL loop ---
+
+  defp loop(nil, _opts) do
+    Renderer.render_error("No active session. Exiting.")
+  end
 
   defp loop(session_pid, opts) do
     prompt_text = IO.ANSI.cyan() <> "loom> " <> IO.ANSI.reset()
@@ -97,14 +143,47 @@ defmodule LoomCli.Interactive do
   end
 
   defp handle_input("/history", session_pid, opts) do
-    IO.puts(IO.ANSI.yellow() <> "  Session history not yet available." <> IO.ANSI.reset())
+    case Session.get_history(session_pid) do
+      {:ok, messages} ->
+        if messages == [] do
+          IO.puts(IO.ANSI.faint() <> "  No messages yet." <> IO.ANSI.reset())
+        else
+          Enum.each(messages, fn msg ->
+            role_color =
+              case msg.role do
+                :user -> IO.ANSI.cyan()
+                :assistant -> IO.ANSI.green()
+                :tool -> IO.ANSI.yellow()
+                :system -> IO.ANSI.faint()
+                _ -> ""
+              end
 
+            IO.puts(role_color <> "  [#{msg.role}] " <> IO.ANSI.reset() <> String.slice(msg.content || "", 0, 120))
+          end)
+        end
+
+      _ ->
+        IO.puts(IO.ANSI.yellow() <> "  Could not retrieve history." <> IO.ANSI.reset())
+    end
+
+    IO.puts("")
     loop(session_pid, opts)
   end
 
   defp handle_input("/sessions", session_pid, opts) do
-    IO.puts(IO.ANSI.yellow() <> "  Session listing not yet available." <> IO.ANSI.reset())
+    sessions = Manager.list_active()
 
+    if sessions == [] do
+      IO.puts(IO.ANSI.faint() <> "  No active sessions." <> IO.ANSI.reset())
+    else
+      IO.puts(IO.ANSI.bright() <> "  Active sessions:" <> IO.ANSI.reset())
+
+      Enum.each(sessions, fn s ->
+        IO.puts("    #{s.id} (#{s.status})")
+      end)
+    end
+
+    IO.puts("")
     loop(session_pid, opts)
   end
 
@@ -114,18 +193,27 @@ defmodule LoomCli.Interactive do
   end
 
   defp handle_input(input, session_pid, opts) do
-    # Regular user input — send to session for LLM processing
-    # TODO: Send to session GenServer when available
-    IO.puts("")
-
-    IO.puts(
-      IO.ANSI.yellow() <>
-        "  Session engine not yet connected. Cannot process: " <>
-        IO.ANSI.reset() <>
-        String.slice(input, 0, 80)
-    )
-
-    IO.puts("")
+    run_message(session_pid, input)
     loop(session_pid, opts)
+  end
+
+  # --- Message Handling ---
+
+  defp run_message(pid, text) do
+    IO.puts("")
+    IO.write(IO.ANSI.faint() <> "  Thinking..." <> IO.ANSI.reset())
+
+    case Session.send_message(pid, text) do
+      {:ok, response} ->
+        # Clear the "Thinking..." line
+        IO.write("\r" <> String.duplicate(" ", 40) <> "\r")
+        Renderer.render_markdown(response)
+        IO.puts("")
+
+      {:error, reason} ->
+        IO.write("\r" <> String.duplicate(" ", 40) <> "\r")
+        Renderer.render_error("Error: #{inspect(reason)}")
+        IO.puts("")
+    end
   end
 end

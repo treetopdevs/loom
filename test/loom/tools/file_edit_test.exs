@@ -10,10 +10,9 @@ defmodule Loom.Tools.FileEditTest do
     %{project_path: tmp_dir, edit_file: file}
   end
 
-  test "definition returns valid tool definition" do
-    defn = FileEdit.definition()
-    assert defn.name == "file_edit"
-    assert "old_string" in defn.parameters.required
+  test "action metadata is correct" do
+    assert FileEdit.name() == "file_edit"
+    assert is_binary(FileEdit.description())
   end
 
   @tag :tmp_dir
@@ -24,7 +23,7 @@ defmodule Loom.Tools.FileEditTest do
       "new_string" => "Hello, Loom!"
     }
 
-    assert {:ok, msg} = FileEdit.run(params, %{project_path: proj})
+    assert {:ok, %{result: msg}} = FileEdit.run(params, %{project_path: proj})
     assert msg =~ "1 occurrence"
     assert File.read!(file) =~ "Hello, Loom!"
     refute File.read!(file) =~ "Hello, Elixir!"
@@ -63,7 +62,7 @@ defmodule Loom.Tools.FileEditTest do
       "replace_all" => true
     }
 
-    assert {:ok, msg} = FileEdit.run(params, %{project_path: proj})
+    assert {:ok, %{result: msg}} = FileEdit.run(params, %{project_path: proj})
     assert msg =~ "2 occurrence"
     content = File.read!(file)
     assert content =~ "Hi, world!"

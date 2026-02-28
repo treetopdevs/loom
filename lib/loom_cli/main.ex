@@ -43,6 +43,13 @@ defmodule LoomCli.Main do
     project_path = opts[:project] || File.cwd!()
     Loom.Config.load(project_path)
 
+    # Initialize repo index with the actual project path.
+    # Start the Index if it wasn't started by the supervision tree.
+    case GenServer.whereis(Loom.RepoIntel.Index) do
+      nil -> Loom.RepoIntel.Index.start_link(project_path: project_path)
+      _pid -> Loom.RepoIntel.Index.set_project(project_path)
+    end
+
     # Apply CLI overrides
     if model = opts[:model] do
       Loom.Config.put(:model, %{

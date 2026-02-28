@@ -16,10 +16,16 @@ defmodule Loom.Session do
     :db_session,
     :status,
     messages: [],
-    tools: []
+    tools: [],
+    auto_approve: false
   ]
 
   # --- Public API ---
+
+  @doc "Subscribe to session events via PubSub."
+  def subscribe(session_id) do
+    Phoenix.PubSub.subscribe(Loom.PubSub, "session:#{session_id}")
+  end
 
   def start_link(opts) do
     session_id = Keyword.fetch!(opts, :session_id)
@@ -78,6 +84,8 @@ defmodule Loom.Session do
     title = Keyword.get(opts, :title)
     tools = Keyword.get(opts, :tools, [])
 
+    auto_approve = Keyword.get(opts, :auto_approve, false)
+
     case load_or_create_session(session_id, model, project_path, title) do
       {:ok, db_session, messages} ->
         state = %__MODULE__{
@@ -87,7 +95,8 @@ defmodule Loom.Session do
           db_session: db_session,
           messages: messages,
           status: :idle,
-          tools: tools
+          tools: tools,
+          auto_approve: auto_approve
         }
 
         {:ok, state}
@@ -111,6 +120,7 @@ defmodule Loom.Session do
 
     user_message = %{role: :user, content: text}
     state = %{state | messages: state.messages ++ [user_message]}
+    broadcast(state.id, {:new_message, state.id, user_message})
 
     # 2. Run the agent loop
     case agent_loop(state, 0) do
@@ -146,9 +156,13 @@ defmodule Loom.Session do
     # Build system prompt
     system_prompt = build_system_prompt(state)
 
-    # Window messages
+    # Window messages with Phase 2 intelligence injection
     windowed =
-      ContextWindow.build_messages(state.messages, system_prompt, model: state.model)
+      ContextWindow.build_messages(state.messages, system_prompt,
+        model: state.model,
+        session_id: state.id,
+        project_path: state.project_path
+      )
 
     # Build req_llm messages
     {provider, model_id} = parse_model(state.model)
@@ -191,6 +205,7 @@ defmodule Loom.Session do
     }
 
     state = %{state | messages: state.messages ++ [assistant_msg]}
+    broadcast(state.id, {:new_message, state.id, assistant_msg})
 
     # Execute each tool call
     state =
@@ -218,6 +233,7 @@ defmodule Loom.Session do
 
     assistant_msg = %{role: :assistant, content: response_text}
     state = %{state | messages: state.messages ++ [assistant_msg]}
+    broadcast(state.id, {:new_message, state.id, assistant_msg})
 
     # Update token counts
     update_usage(state.id, response)
@@ -230,25 +246,38 @@ defmodule Loom.Session do
     tool_args = tool_call[:arguments] || %{}
     tool_call_id = tool_call[:id] || "call_#{Ecto.UUID.generate()}"
 
-    context = %{project_path: state.project_path}
+    context = %{project_path: state.project_path, session_id: state.id}
+    tool_path = tool_args["file_path"] || tool_args["path"] || "*"
+
+    broadcast(state.id, {:tool_executing, state.id, tool_name})
 
     result =
-      case find_tool(state.tools, tool_name) do
-        nil ->
+      case Jido.AI.ToolAdapter.lookup_action(tool_name, state.tools) do
+        {:error, :not_found} ->
           {:error, "Tool '#{tool_name}' not found"}
 
-        tool_module ->
-          try do
-            tool_module.run(tool_args, context)
-          rescue
-            e -> {:error, Exception.message(e)}
+        {:ok, tool_module} ->
+          case check_permission(tool_name, tool_path, state) do
+            :denied ->
+              {:error, "Permission denied for #{tool_name} on #{tool_path}"}
+
+            :allowed ->
+              try do
+                Jido.Exec.run(tool_module, tool_args, context, timeout: 60_000)
+              rescue
+                e -> {:error, Exception.message(e)}
+              end
           end
       end
 
     result_text =
       case result do
-        {:ok, text} -> text
-        {:error, text} -> "Error: #{text}"
+        {:ok, %{result: text}} -> text
+        {:ok, text} when is_binary(text) -> text
+        {:ok, map} when is_map(map) -> inspect(map)
+        {:error, %{message: msg}} -> "Error: #{msg}"
+        {:error, text} when is_binary(text) -> "Error: #{text}"
+        {:error, reason} -> "Error: #{inspect(reason)}"
       end
 
     # Save tool result message
@@ -260,56 +289,45 @@ defmodule Loom.Session do
         tool_call_id: tool_call_id
       })
 
+    broadcast(state.id, {:tool_complete, state.id, tool_name, result_text})
+
     tool_msg = %{role: :tool, content: result_text, tool_call_id: tool_call_id}
+    broadcast(state.id, {:new_message, state.id, tool_msg})
     %{state | messages: state.messages ++ [tool_msg]}
   end
 
-  defp find_tool(tools, name) do
-    Enum.find(tools, fn mod ->
-      mod.definition().name == name
-    end)
+  defp check_permission(tool_name, tool_path, state) do
+    case Loom.Permissions.Manager.check(tool_name, tool_path, state.id) do
+      :allowed ->
+        :allowed
+
+      :ask ->
+        if state.auto_approve do
+          Loom.Permissions.Manager.grant(tool_name, tool_path, state.id)
+          :allowed
+        else
+          details = "#{tool_name} on #{tool_path}"
+
+          case Loom.Permissions.Prompt.ask(tool_name, details) do
+            :yes ->
+              :allowed
+
+            :always ->
+              Loom.Permissions.Manager.grant(tool_name, "*", state.id)
+              :allowed
+
+            :no ->
+              :denied
+          end
+        end
+    end
   end
 
   defp build_tool_definitions([]), do: []
 
   defp build_tool_definitions(tools) do
-    Enum.map(tools, fn mod ->
-      defn = mod.definition()
-
-      ReqLLM.tool(
-        name: defn.name,
-        description: defn.description,
-        parameter_schema: convert_params(defn.parameters),
-        callback: fn _args -> {:ok, "placeholder"} end
-      )
-    end)
+    Jido.AI.ToolAdapter.from_actions(tools)
   end
-
-  defp convert_params(%{properties: props, required: required}) do
-    Enum.map(props, fn {key, spec} ->
-      opts = [
-        type: map_json_type(spec[:type] || spec["type"]),
-        doc: spec[:description] || spec["description"] || ""
-      ]
-
-      opts =
-        if key in (required || []) or to_string(key) in (required || []) do
-          [{:required, true} | opts]
-        else
-          opts
-        end
-
-      {key, opts}
-    end)
-  end
-
-  defp convert_params(_), do: []
-
-  defp map_json_type("string"), do: :string
-  defp map_json_type("integer"), do: :integer
-  defp map_json_type("number"), do: :float
-  defp map_json_type("boolean"), do: :boolean
-  defp map_json_type(_), do: :any
 
   defp call_llm(provider, model_id, messages, opts) do
     model_spec = "#{provider}:#{model_id}"
@@ -450,10 +468,18 @@ defmodule Loom.Session do
       Registry.update_value(Loom.SessionRegistry, state.id, fn _ -> new_status end)
     end
 
+    broadcast(state.id, {:session_status, state.id, new_status})
+
     %{state | status: new_status}
   end
 
   defp default_model do
     Application.get_env(:loom, :default_model, "anthropic:claude-sonnet-4-6")
+  end
+
+  defp broadcast(session_id, event) do
+    Phoenix.PubSub.broadcast(Loom.PubSub, "session:#{session_id}", event)
+  rescue
+    _ -> :ok
   end
 end

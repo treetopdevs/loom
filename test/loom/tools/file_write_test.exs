@@ -8,16 +8,15 @@ defmodule Loom.Tools.FileWriteTest do
     %{project_path: tmp_dir}
   end
 
-  test "definition returns valid tool definition" do
-    defn = FileWrite.definition()
-    assert defn.name == "file_write"
-    assert "content" in defn.parameters.required
+  test "action metadata is correct" do
+    assert FileWrite.name() == "file_write"
+    assert is_binary(FileWrite.description())
   end
 
   @tag :tmp_dir
   test "writes a new file", %{project_path: proj} do
     params = %{"file_path" => "hello.txt", "content" => "Hello, world!"}
-    assert {:ok, msg} = FileWrite.run(params, %{project_path: proj})
+    assert {:ok, %{result: msg}} = FileWrite.run(params, %{project_path: proj})
     assert msg =~ "13 bytes"
     assert File.read!(Path.join(proj, "hello.txt")) == "Hello, world!"
   end
@@ -25,7 +24,7 @@ defmodule Loom.Tools.FileWriteTest do
   @tag :tmp_dir
   test "creates parent directories", %{project_path: proj} do
     params = %{"file_path" => "a/b/c/deep.txt", "content" => "deep"}
-    assert {:ok, _msg} = FileWrite.run(params, %{project_path: proj})
+    assert {:ok, %{result: _msg}} = FileWrite.run(params, %{project_path: proj})
     assert File.exists?(Path.join(proj, "a/b/c/deep.txt"))
   end
 
@@ -35,7 +34,7 @@ defmodule Loom.Tools.FileWriteTest do
     File.write!(path, "original")
 
     params = %{"file_path" => "overwrite.txt", "content" => "replaced"}
-    assert {:ok, _} = FileWrite.run(params, %{project_path: proj})
+    assert {:ok, %{result: _}} = FileWrite.run(params, %{project_path: proj})
     assert File.read!(path) == "replaced"
   end
 

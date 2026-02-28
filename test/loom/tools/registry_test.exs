@@ -18,7 +18,7 @@ defmodule Loom.Tools.RegistryTest do
   test "definitions/0 returns tool definitions" do
     defs = Registry.definitions()
     assert is_list(defs)
-    names = Enum.map(defs, & &1.name)
+    names = Enum.map(defs, fn d -> d.name end)
     assert "file_read" in names
     assert "file_write" in names
     assert "file_edit" in names
@@ -42,7 +42,7 @@ defmodule Loom.Tools.RegistryTest do
     file = Path.join(tmp_dir, "exec_test.txt")
     File.write!(file, "test content\n")
 
-    assert {:ok, result} =
+    assert {:ok, %{result: result}} =
              Registry.execute("file_read", %{"file_path" => "exec_test.txt"}, %{
                project_path: tmp_dir
              })

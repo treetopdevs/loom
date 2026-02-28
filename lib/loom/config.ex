@@ -113,14 +113,29 @@ defmodule Loom.Config do
     end)
   end
 
+  # Known config keys that may appear in .loom.toml
+  @known_keys ~w(model permissions context decisions mcp web
+    default weak auto_approve max_repo_map_tokens max_decision_context_tokens
+    reserved_output_tokens enabled enforce_pre_edit auto_log_commits
+    servers name command args url port)a
+
   defp atomize_keys(map) when is_map(map) do
     Map.new(map, fn
       {key, value} when is_binary(key) ->
-        {String.to_atom(key), atomize_keys(value)}
+        atom_key =
+          if String.to_existing_atom(key) in @known_keys do
+            String.to_existing_atom(key)
+          else
+            key
+          end
+
+        {atom_key, atomize_keys(value)}
 
       {key, value} ->
         {key, atomize_keys(value)}
     end)
+  rescue
+    ArgumentError -> Map.new(map, fn {k, v} -> {k, atomize_keys(v)} end)
   end
 
   defp atomize_keys(list) when is_list(list), do: Enum.map(list, &atomize_keys/1)

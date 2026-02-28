@@ -9,34 +9,52 @@ defmodule Loom.Tools.Registry do
     Loom.Tools.ContentSearch,
     Loom.Tools.DirectoryList,
     Loom.Tools.Shell,
-    Loom.Tools.Git
+    Loom.Tools.Git,
+    Loom.Tools.DecisionLog,
+    Loom.Tools.DecisionQuery,
+    Loom.Tools.SubAgent
   ]
 
   @doc "Returns all registered tool modules."
   @spec all() :: [module()]
   def all, do: @tools
 
-  @doc "Returns the tool definitions for all registered tools."
-  @spec definitions() :: [Loom.Tool.tool_def()]
+  @doc "Returns the tool definitions for all registered tools as ReqLLM.Tool structs."
+  @spec definitions() :: [ReqLLM.Tool.t()]
   def definitions do
-    Enum.map(@tools, & &1.definition())
+    Jido.AI.ToolAdapter.from_actions(@tools)
   end
 
   @doc "Finds a tool module by its string name (e.g. \"file_read\")."
   @spec find(String.t()) :: {:ok, module()} | {:error, String.t()}
   def find(name) when is_binary(name) do
-    case Enum.find(@tools, fn mod -> mod.definition().name == name end) do
-      nil -> {:error, "Unknown tool: #{name}"}
-      mod -> {:ok, mod}
+    case Jido.AI.ToolAdapter.lookup_action(name, @tools) do
+      {:ok, module} -> {:ok, module}
+      {:error, :not_found} -> {:error, "Unknown tool: #{name}"}
     end
   end
 
-  @doc "Looks up a tool by name and runs it with the given params and context."
-  @spec execute(String.t(), map(), map()) :: {:ok, String.t()} | {:error, String.t()}
-  def execute(tool_name, params, context) do
+  @doc "Looks up a tool by name and runs it with the given params and context via Jido.Exec."
+  @spec execute(String.t(), map(), map(), keyword()) :: {:ok, any()} | {:error, any()}
+  def execute(tool_name, params, context, opts \\ []) do
     case find(tool_name) do
-      {:ok, mod} -> mod.run(params, context)
-      error -> error
+      {:ok, mod} ->
+        # Jido.Exec validates params via NimbleOptions (atom keys).
+        # LLM tool calls arrive with string keys, so normalize here.
+        normalized = atomize_keys(params)
+        Jido.Exec.run(mod, normalized, context, Keyword.put_new(opts, :timeout, 60_000))
+
+      error ->
+        error
     end
+  end
+
+  defp atomize_keys(map) when is_map(map) do
+    Map.new(map, fn
+      {k, v} when is_binary(k) -> {String.to_existing_atom(k), v}
+      {k, v} -> {k, v}
+    end)
+  rescue
+    ArgumentError -> map
   end
 end

@@ -1,43 +1,30 @@
 defmodule Loom.Tools.FileSearch do
   @moduledoc "Searches for files matching a glob pattern."
-  @behaviour Loom.Tool
+
+  use Jido.Action,
+    name: "file_search",
+    description:
+      "Searches for files matching a glob pattern (e.g. \"**/*.ex\"). " <>
+        "Returns matching file paths sorted by modification time (most recent first). " <>
+        "Common directories like .git, _build, deps, and node_modules are excluded.",
+    schema: [
+      pattern: [type: :string, required: true, doc: "Glob pattern to match (e.g. \"**/*.ex\", \"lib/**/*.ex\")"],
+      path: [type: :string, doc: "Directory to search in (relative to project root, defaults to root)"]
+    ]
+
+  import Loom.Tool, only: [safe_path!: 2, param!: 2, param: 2]
 
   @ignore_dirs ~w(.git _build deps node_modules .elixir_ls .lexical)
 
   @impl true
-  def definition do
-    %{
-      name: "file_search",
-      description:
-        "Searches for files matching a glob pattern (e.g. \"**/*.ex\"). " <>
-          "Returns matching file paths sorted by modification time (most recent first). " <>
-          "Common directories like .git, _build, deps, and node_modules are excluded.",
-      parameters: %{
-        type: "object",
-        required: ["pattern"],
-        properties: %{
-          pattern: %{
-            type: "string",
-            description: "Glob pattern to match (e.g. \"**/*.ex\", \"lib/**/*.ex\")"
-          },
-          path: %{
-            type: "string",
-            description: "Directory to search in (relative to project root, defaults to root)"
-          }
-        }
-      }
-    }
-  end
-
-  @impl true
   def run(params, context) do
-    project_path = Map.fetch!(context, :project_path)
-    pattern = Map.fetch!(params, "pattern")
-    sub_path = Map.get(params, "path")
+    project_path = param!(context, :project_path)
+    pattern = param!(params, :pattern)
+    sub_path = param(params, :path)
 
     search_dir =
       if sub_path do
-        Loom.Tool.safe_path!(sub_path, project_path)
+        safe_path!(sub_path, project_path)
       else
         project_path
       end
@@ -52,11 +39,11 @@ defmodule Loom.Tools.FileSearch do
 
     case matches do
       [] ->
-        {:ok, "No files matched pattern: #{pattern}"}
+        {:ok, %{result: "No files matched pattern: #{pattern}"}}
 
       files ->
         header = "Found #{length(files)} file(s):\n"
-        {:ok, header <> Enum.join(files, "\n")}
+        {:ok, %{result: header <> Enum.join(files, "\n")}}
     end
   rescue
     e in ArgumentError -> {:error, e.message}

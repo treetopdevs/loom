@@ -18,16 +18,15 @@ defmodule Loom.Tools.GitTest do
     %{project_path: tmp_dir}
   end
 
-  test "definition returns valid tool definition" do
-    defn = GitTool.definition()
-    assert defn.name == "git"
-    assert "operation" in defn.parameters.required
+  test "action metadata is correct" do
+    assert GitTool.name() == "git"
+    assert is_binary(GitTool.description())
   end
 
   @tag :tmp_dir
   test "status shows clean working tree", %{project_path: proj} do
     params = %{"operation" => "status"}
-    assert {:ok, result} = GitTool.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = GitTool.run(params, %{project_path: proj})
     assert result =~ "clean"
   end
 
@@ -35,7 +34,7 @@ defmodule Loom.Tools.GitTest do
   test "status shows modified files", %{project_path: proj} do
     File.write!(Path.join(proj, "new.txt"), "new file\n")
     params = %{"operation" => "status"}
-    assert {:ok, result} = GitTool.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = GitTool.run(params, %{project_path: proj})
     assert result =~ "new.txt"
   end
 
@@ -43,7 +42,7 @@ defmodule Loom.Tools.GitTest do
   test "add stages files", %{project_path: proj} do
     File.write!(Path.join(proj, "staged.txt"), "content\n")
     params = %{"operation" => "add", "args" => %{"files" => ["staged.txt"]}}
-    assert {:ok, result} = GitTool.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = GitTool.run(params, %{project_path: proj})
     assert result =~ "Staged 1 file"
   end
 
@@ -60,7 +59,7 @@ defmodule Loom.Tools.GitTest do
     System.cmd("git", ["add", "committed.txt"], cd: proj)
 
     params = %{"operation" => "commit", "args" => %{"message" => "Add committed.txt"}}
-    assert {:ok, result} = GitTool.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = GitTool.run(params, %{project_path: proj})
     assert result =~ "Commit created"
   end
 
@@ -73,7 +72,7 @@ defmodule Loom.Tools.GitTest do
       "args" => %{"message" => "Auto-stage commit", "files" => ["auto.txt"]}
     }
 
-    assert {:ok, result} = GitTool.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = GitTool.run(params, %{project_path: proj})
     assert result =~ "Commit created"
   end
 
@@ -88,7 +87,7 @@ defmodule Loom.Tools.GitTest do
   test "diff shows changes", %{project_path: proj} do
     File.write!(Path.join(proj, "README.md"), "# Modified\n")
     params = %{"operation" => "diff"}
-    assert {:ok, result} = GitTool.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = GitTool.run(params, %{project_path: proj})
     assert result =~ "Modified"
   end
 
@@ -98,21 +97,21 @@ defmodule Loom.Tools.GitTest do
     System.cmd("git", ["add", "README.md"], cd: proj)
 
     params = %{"operation" => "diff", "args" => %{"staged" => true}}
-    assert {:ok, result} = GitTool.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = GitTool.run(params, %{project_path: proj})
     assert result =~ "Staged change"
   end
 
   @tag :tmp_dir
   test "diff with no changes", %{project_path: proj} do
     params = %{"operation" => "diff"}
-    assert {:ok, result} = GitTool.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = GitTool.run(params, %{project_path: proj})
     assert result =~ "No differences"
   end
 
   @tag :tmp_dir
   test "log shows commits", %{project_path: proj} do
     params = %{"operation" => "log", "args" => %{"count" => 5}}
-    assert {:ok, result} = GitTool.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = GitTool.run(params, %{project_path: proj})
     assert result =~ "Initial commit"
   end
 
@@ -122,7 +121,7 @@ defmodule Loom.Tools.GitTest do
     System.cmd("git", ["add", "unstage.txt"], cd: proj)
 
     params = %{"operation" => "reset", "args" => %{"files" => ["unstage.txt"]}}
-    assert {:ok, result} = GitTool.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = GitTool.run(params, %{project_path: proj})
     assert result =~ "Unstaged"
   end
 
@@ -138,18 +137,18 @@ defmodule Loom.Tools.GitTest do
     File.write!(Path.join(proj, "README.md"), "# Stashed\n")
 
     params = %{"operation" => "stash", "args" => %{"action" => "push"}}
-    assert {:ok, result} = GitTool.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = GitTool.run(params, %{project_path: proj})
     assert result =~ "Stash pushed"
 
     params = %{"operation" => "stash", "args" => %{"action" => "pop"}}
-    assert {:ok, result} = GitTool.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = GitTool.run(params, %{project_path: proj})
     assert result =~ "Stash popped"
   end
 
   @tag :tmp_dir
   test "stash list when empty", %{project_path: proj} do
     params = %{"operation" => "stash", "args" => %{"action" => "list"}}
-    assert {:ok, result} = GitTool.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = GitTool.run(params, %{project_path: proj})
     assert result =~ "No stashes"
   end
 

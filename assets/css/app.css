@@ -1,0 +1,27 @@
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
+
+/* Loom dark theme defaults */
+body {
+  @apply bg-gray-950 text-gray-100;
+}
+
+/* Phoenix LiveView loading states */
+.phx-no-feedback.invalid-feedback,
+.phx-no-feedback .invalid-feedback {
+  display: none;
+}
+
+.phx-click-loading {
+  opacity: 0.5;
+  transition: opacity 200ms;
+}
+
+.phx-submit-loading .phx-submit-loading-indicator {
+  display: inline;
+}
+
+.phx-submit-loading .phx-submit-loading-hide {
+  display: none;
+}

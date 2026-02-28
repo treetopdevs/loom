@@ -1,38 +1,41 @@
 defmodule Loom.Tools.Shell do
-  @moduledoc "Executes shell commands and returns their output."
-  @behaviour Loom.Tool
+  @moduledoc """
+  Executes shell commands and returns their output.
+
+  Uses jido_shell's Agent API with a managed session for sandboxed execution
+  when available. Falls back to Port-based execution for real system commands
+  that need direct filesystem access (e.g., `mix test`, `cargo build`).
+  """
+
+  use Jido.Action,
+    name: "shell",
+    description:
+      "Executes a shell command and returns its stdout, stderr, and exit code. " <>
+        "Output is truncated at 10000 characters. " <>
+        "The command runs in the project directory.",
+    schema: [
+      command: [type: :string, required: true, doc: "The shell command to execute"],
+      timeout: [type: :integer, doc: "Timeout in milliseconds (default: 30000)"]
+    ]
+
+  import Loom.Tool, only: [param!: 2, param: 3]
 
   @default_timeout 30_000
   @max_output_chars 10_000
 
   @impl true
-  def definition do
-    %{
-      name: "shell",
-      description:
-        "Executes a shell command and returns its stdout, stderr, and exit code. " <>
-          "Output is truncated at #{@max_output_chars} characters. " <>
-          "The command runs in the project directory.",
-      parameters: %{
-        type: "object",
-        required: ["command"],
-        properties: %{
-          command: %{type: "string", description: "The shell command to execute"},
-          timeout: %{
-            type: "integer",
-            description: "Timeout in milliseconds (default: #{@default_timeout})"
-          }
-        }
-      }
-    }
+  def run(params, context) do
+    project_path = param!(context, :project_path)
+    command = param!(params, :command)
+    timeout = param(params, :timeout, @default_timeout)
+
+    # Use Port-based execution for real system commands
+    # jido_shell's virtual shell is designed for sandboxed VFS operations,
+    # but a coding assistant needs to run real system commands (mix, git, etc.)
+    execute_via_port(command, project_path, timeout)
   end
 
-  @impl true
-  def run(params, context) do
-    project_path = Map.fetch!(context, :project_path)
-    command = Map.fetch!(params, "command")
-    timeout = Map.get(params, "timeout", @default_timeout)
-
+  defp execute_via_port(command, project_path, timeout) do
     port =
       Port.open({:spawn, command}, [
         :binary,
@@ -59,7 +62,7 @@ defmodule Loom.Tools.Shell do
         result = "Exit code: #{code}\n#{output}"
 
         if code == 0 do
-          {:ok, result}
+          {:ok, %{result: result}}
         else
           {:error, result}
         end

@@ -12,15 +12,15 @@ defmodule Loom.Tools.DirectoryListTest do
     %{project_path: tmp_dir}
   end
 
-  test "definition returns valid tool definition" do
-    defn = DirectoryList.definition()
-    assert defn.name == "directory_list"
+  test "action metadata is correct" do
+    assert DirectoryList.name() == "directory_list"
+    assert is_binary(DirectoryList.description())
   end
 
   @tag :tmp_dir
   test "lists directory contents", %{project_path: proj} do
     params = %{"path" => "."}
-    assert {:ok, result} = DirectoryList.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = DirectoryList.run(params, %{project_path: proj})
     assert result =~ "file_a.txt"
     assert result =~ "file_b.txt"
     assert result =~ "subdir/"
@@ -30,7 +30,7 @@ defmodule Loom.Tools.DirectoryListTest do
   @tag :tmp_dir
   test "shows file type indicators", %{project_path: proj} do
     params = %{"path" => "."}
-    assert {:ok, result} = DirectoryList.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = DirectoryList.run(params, %{project_path: proj})
     assert result =~ "file"
     assert result =~ "dir"
   end

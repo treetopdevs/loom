@@ -28,6 +28,46 @@ defmodule Loom.Session.ContextWindowTest do
     end
   end
 
+  describe "allocate_budget/2" do
+    test "returns all zones with defaults" do
+      budget = ContextWindow.allocate_budget(nil)
+
+      assert budget.system_prompt == 2048
+      assert budget.decision_context == 1024
+      assert budget.repo_map == 2048
+      assert budget.tool_definitions == 2048
+      assert budget.reserved_output == 4096
+      # history = 128_000 - (2048 + 1024 + 2048 + 2048 + 4096) = 116_736
+      assert budget.history == 116_736
+    end
+
+    test "respects custom options" do
+      budget =
+        ContextWindow.allocate_budget(nil,
+          max_decision_tokens: 2048,
+          max_repo_map_tokens: 4096,
+          reserved_output: 8192
+        )
+
+      assert budget.decision_context == 2048
+      assert budget.repo_map == 4096
+      assert budget.reserved_output == 8192
+      # history = 128_000 - (2048 + 2048 + 4096 + 2048 + 8192) = 109_568
+      assert budget.history == 109_568
+    end
+
+    test "history is zero when zones exceed model limit" do
+      budget =
+        ContextWindow.allocate_budget(nil,
+          max_decision_tokens: 50_000,
+          max_repo_map_tokens: 50_000,
+          reserved_output: 50_000
+        )
+
+      assert budget.history == 0
+    end
+  end
+
   describe "build_messages/3" do
     test "includes system prompt as first message" do
       messages = [%{role: :user, content: "Hello"}]
@@ -35,7 +75,7 @@ defmodule Loom.Session.ContextWindowTest do
 
       assert [system | _rest] = result
       assert system.role == :system
-      assert system.content == "You are helpful."
+      assert system.content =~ "You are helpful."
     end
 
     test "includes recent messages that fit" do
@@ -106,6 +146,91 @@ defmodule Loom.Session.ContextWindowTest do
 
       # With larger reserved output, fewer messages should fit
       assert length(result_small) <= length(result_large)
+    end
+
+    test "backward compatible - works with just messages and system_prompt" do
+      messages = [%{role: :user, content: "hello"}]
+      result = ContextWindow.build_messages(messages, "system")
+
+      assert length(result) == 2
+      assert hd(result).role == :system
+      assert hd(result).content =~ "system"
+    end
+  end
+
+  describe "inject_decision_context/2" do
+    test "returns parts unchanged when session_id is nil" do
+      parts = ["System prompt"]
+      assert ContextWindow.inject_decision_context(parts, nil) == parts
+    end
+  end
+
+  describe "inject_repo_map/3" do
+    test "returns parts unchanged when project_path is nil" do
+      parts = ["System prompt"]
+      assert ContextWindow.inject_repo_map(parts, nil) == parts
+    end
+  end
+
+  describe "inject_project_rules/2" do
+    test "returns parts unchanged when project_path is nil" do
+      parts = ["System prompt"]
+      assert ContextWindow.inject_project_rules(parts, nil) == parts
+    end
+
+    @tag :tmp_dir
+    test "injects rules when LOOM.md exists", %{tmp_dir: tmp_dir} do
+      loom_md = """
+      You are a careful coder.
+
+      ## Rules
+      - Always write tests
+      - Use pattern matching
+      """
+
+      File.write!(Path.join(tmp_dir, "LOOM.md"), loom_md)
+
+      parts = ["System prompt"]
+      result = ContextWindow.inject_project_rules(parts, tmp_dir)
+
+      # Should have appended project rules
+      assert length(result) == 2
+      assert List.last(result) =~ "Always write tests"
+    end
+
+    @tag :tmp_dir
+    test "returns parts unchanged when no LOOM.md exists", %{tmp_dir: tmp_dir} do
+      parts = ["System prompt"]
+      result = ContextWindow.inject_project_rules(parts, tmp_dir)
+      assert result == parts
+    end
+  end
+
+  describe "summarize_old_messages/2" do
+    test "returns summary string with message count" do
+      messages = [
+        %{role: :user, content: "first message"},
+        %{role: :assistant, content: "first response"},
+        %{role: :user, content: "second message"}
+      ]
+
+      result = ContextWindow.summarize_old_messages(messages)
+      assert result =~ "Summary of 3 earlier messages:"
+      assert result =~ "first message"
+    end
+
+    test "truncates long content in summary" do
+      long = String.duplicate("x", 500)
+      messages = [%{role: :user, content: long}]
+
+      result = ContextWindow.summarize_old_messages(messages)
+      # The snippet should be capped at ~200 chars + prefix + "..."
+      assert String.length(result) < 300
+    end
+
+    test "handles empty messages list" do
+      result = ContextWindow.summarize_old_messages([])
+      assert result =~ "Summary of 0 earlier messages:"
     end
   end
 end

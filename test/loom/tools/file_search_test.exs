@@ -19,16 +19,15 @@ defmodule Loom.Tools.FileSearchTest do
     %{project_path: tmp_dir}
   end
 
-  test "definition returns valid tool definition" do
-    defn = FileSearch.definition()
-    assert defn.name == "file_search"
-    assert "pattern" in defn.parameters.required
+  test "action metadata is correct" do
+    assert FileSearch.name() == "file_search"
+    assert is_binary(FileSearch.description())
   end
 
   @tag :tmp_dir
   test "finds files matching glob pattern", %{project_path: proj} do
     params = %{"pattern" => "**/*.ex"}
-    assert {:ok, result} = FileSearch.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = FileSearch.run(params, %{project_path: proj})
     assert result =~ "app.ex"
     assert result =~ "helper.ex"
     refute result =~ "app_test.exs"
@@ -37,21 +36,21 @@ defmodule Loom.Tools.FileSearchTest do
   @tag :tmp_dir
   test "finds files in subdirectory", %{project_path: proj} do
     params = %{"pattern" => "*.exs", "path" => "test"}
-    assert {:ok, result} = FileSearch.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = FileSearch.run(params, %{project_path: proj})
     assert result =~ "app_test.exs"
   end
 
   @tag :tmp_dir
   test "excludes .git directory", %{project_path: proj} do
     params = %{"pattern" => "**/*"}
-    assert {:ok, result} = FileSearch.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = FileSearch.run(params, %{project_path: proj})
     refute result =~ ".git"
   end
 
   @tag :tmp_dir
   test "returns message when no files match", %{project_path: proj} do
     params = %{"pattern" => "**/*.rs"}
-    assert {:ok, result} = FileSearch.run(params, %{project_path: proj})
+    assert {:ok, %{result: result}} = FileSearch.run(params, %{project_path: proj})
     assert result =~ "No files matched"
   end
 end
