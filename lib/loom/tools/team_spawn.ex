@@ -22,30 +22,26 @@ defmodule Loom.Tools.TeamSpawn do
     roles = param!(params, :roles)
     project_path = param(params, :project_path) || param(context, :project_path)
 
-    case Manager.create_team(name: team_name, project_path: project_path) do
-      {:ok, team_id} ->
-        results =
-          Enum.map(roles, fn role_map ->
-            name = Map.get(role_map, :name) || Map.get(role_map, "name")
-            role = Map.get(role_map, :role) || Map.get(role_map, "role")
-            role_atom = if is_binary(role), do: String.to_existing_atom(role), else: role
+    {:ok, team_id} = Manager.create_team(name: team_name, project_path: project_path)
 
-            case Manager.spawn_agent(team_id, name, role_atom, project_path: project_path) do
-              {:ok, _pid} -> "  - #{name} (#{role}): spawned"
-              {:error, reason} -> "  - #{name} (#{role}): failed - #{inspect(reason)}"
-            end
-          end)
+    results =
+      Enum.map(roles, fn role_map ->
+        name = Map.get(role_map, :name) || Map.get(role_map, "name")
+        role = Map.get(role_map, :role) || Map.get(role_map, "role")
+        role_atom = if is_binary(role), do: String.to_existing_atom(role), else: role
 
-        summary = """
-        Team "#{team_name}" created (id: #{team_id})
-        Agents:
-        #{Enum.join(results, "\n")}
-        """
+        case Manager.spawn_agent(team_id, name, role_atom, project_path: project_path) do
+          {:ok, _pid} -> "  - #{name} (#{role}): spawned"
+          {:error, reason} -> "  - #{name} (#{role}): failed - #{inspect(reason)}"
+        end
+      end)
 
-        {:ok, %{result: String.trim(summary), team_id: team_id}}
+    summary = """
+    Team "#{team_name}" created (id: #{team_id})
+    Agents:
+    #{Enum.join(results, "\n")}
+    """
 
-      {:error, reason} ->
-        {:error, "Failed to create team: #{inspect(reason)}"}
-    end
+    {:ok, %{result: String.trim(summary), team_id: team_id}}
   end
 end
