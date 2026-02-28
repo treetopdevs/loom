@@ -3,7 +3,7 @@ defmodule Loom.Teams.QueryRouter do
 
   use GenServer
 
-  alias Loom.Teams.Comms
+  alias Loom.Teams.{Comms, ContextRetrieval}
 
   # --- Public API ---
 
@@ -49,13 +49,16 @@ defmodule Loom.Teams.QueryRouter do
     target = Keyword.get(opts, :target)
     max_hops = Keyword.get(opts, :max_hops, 5)
 
+    # Auto-query keepers for relevant context before routing to agents
+    keeper_enrichments = fetch_keeper_context(team_id, question)
+
     query = %{
       team_id: team_id,
       origin: from,
       question: question,
       target: target,
       hops: [],
-      enrichments: [],
+      enrichments: keeper_enrichments,
       answer: nil,
       created_at: System.monotonic_time(:millisecond),
       max_hops: max_hops
@@ -63,8 +66,8 @@ defmodule Loom.Teams.QueryRouter do
 
     state = put_in(state, [:queries, query_id], query)
 
-    # Route the question
-    message = {:query, query_id, from, question, []}
+    # Route the question (include keeper enrichments so receivers have context)
+    message = {:query, query_id, from, question, keeper_enrichments}
 
     if target do
       Comms.send_to(team_id, target, message)
@@ -141,5 +144,28 @@ defmodule Loom.Teams.QueryRouter do
 
     state = %{state | queries: Map.new(remaining)}
     {:reply, {:ok, length(expired)}, state}
+  end
+
+  # --- Private ---
+
+  @keeper_timeout_ms 5_000
+
+  # Runs keeper retrieval in a separate Task to avoid blocking the
+  # router GenServer.  Caps wall-clock wait at @keeper_timeout_ms.
+  defp fetch_keeper_context(team_id, question) do
+    task =
+      Task.Supervisor.async_nolink(Loom.Teams.TaskSupervisor, fn ->
+        ContextRetrieval.smart_retrieve(team_id, question)
+      end)
+
+    case Task.yield(task, @keeper_timeout_ms) || Task.shutdown(task) do
+      {:ok, {:ok, answer}} when is_binary(answer) and answer != "" ->
+        ["[Context Keeper]: #{answer}"]
+
+      _ ->
+        []
+    end
+  rescue
+    _ -> []
   end
 end

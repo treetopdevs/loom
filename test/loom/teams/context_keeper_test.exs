@@ -179,6 +179,50 @@ defmodule Loom.Teams.ContextKeeperTest do
     end
   end
 
+  describe "smart_retrieve/2" do
+    test "falls back to keyword retrieval when LLM is unavailable" do
+      messages = [
+        %{role: :user, content: "elixir is great for concurrency"},
+        %{role: :assistant, content: "yes, the BEAM VM handles it well"}
+      ]
+
+      %{pid: pid} = start_keeper(messages: messages)
+
+      # LLM call will fail in test env (no API key), triggering fallback
+      {:ok, result} = ContextKeeper.smart_retrieve(pid, "what is elixir good at?")
+
+      # Fallback returns formatted text (not raw message list)
+      assert is_binary(result)
+      assert result =~ "elixir"
+      assert result =~ "BEAM"
+    end
+
+    test "does not modify state after smart retrieval" do
+      messages = [
+        %{role: :user, content: "hello world"},
+        %{role: :assistant, content: "hi there"}
+      ]
+
+      %{pid: pid} = start_keeper(messages: messages)
+
+      state_before = ContextKeeper.get_state(pid)
+
+      {:ok, _result} = ContextKeeper.smart_retrieve(pid, "what was said?")
+
+      state_after = ContextKeeper.get_state(pid)
+
+      assert state_before.messages == state_after.messages
+      assert state_before.token_count == state_after.token_count
+      assert state_before.metadata == state_after.metadata
+    end
+
+    test "returns ok tuple on fallback" do
+      %{pid: pid} = start_keeper(messages: [%{role: :user, content: "test content"}])
+
+      assert {:ok, _result} = ContextKeeper.smart_retrieve(pid, "anything")
+    end
+  end
+
   describe "persistence" do
     test "persists to SQLite on store" do
       id = Ecto.UUID.generate()

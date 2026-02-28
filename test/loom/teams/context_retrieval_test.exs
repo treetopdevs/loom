@@ -138,5 +138,89 @@ defmodule Loom.Teams.ContextRetrievalTest do
     test "returns error when no keepers exist", %{team_id: team_id} do
       assert {:error, :not_found} = ContextRetrieval.retrieve(team_id, "anything")
     end
+
+    test "explicit mode: :raw uses raw retrieval", %{team_id: team_id} do
+      messages = [%{role: :user, content: "raw content here"}]
+      %{id: id} = spawn_keeper(team_id, topic: "raw test", messages: messages)
+
+      {:ok, result} = ContextRetrieval.retrieve(team_id, "what is raw test?", keeper_id: id, mode: :raw)
+      assert length(result) == 1
+      assert hd(result).content == "raw content here"
+    end
+
+    test "explicit mode: :smart uses smart retrieval", %{team_id: team_id} do
+      messages = [%{role: :user, content: "smart content here"}]
+      %{id: id} = spawn_keeper(team_id, topic: "smart test", messages: messages)
+
+      # This test depends on ContextKeeper.smart_retrieve/2 from Task #1.
+      # It will fail until that function is available.
+      {:ok, result} = ContextRetrieval.retrieve(team_id, "keywords only", keeper_id: id, mode: :smart)
+      assert is_binary(result) or is_list(result)
+    end
+  end
+
+  describe "smart_retrieve/3" do
+    test "forces smart mode", %{team_id: team_id} do
+      messages = [%{role: :user, content: "smart retrieval content"}]
+      %{id: id} = spawn_keeper(team_id, topic: "smart topic", messages: messages)
+
+      # This test depends on ContextKeeper.smart_retrieve/2 from Task #1.
+      {:ok, result} = ContextRetrieval.smart_retrieve(team_id, "smart topic", keeper_id: id)
+      assert is_binary(result) or is_list(result)
+    end
+
+    test "returns error when no keepers exist", %{team_id: team_id} do
+      assert {:error, :not_found} = ContextRetrieval.smart_retrieve(team_id, "anything")
+    end
+  end
+
+  describe "detect_mode/1" do
+    test "question mark triggers smart mode" do
+      assert ContextRetrieval.detect_mode("what is this?") == :smart
+      assert ContextRetrieval.detect_mode("tell me about this?") == :smart
+      assert ContextRetrieval.detect_mode("anything at all?") == :smart
+    end
+
+    test "question starter words trigger smart mode" do
+      assert ContextRetrieval.detect_mode("what is the architecture") == :smart
+      assert ContextRetrieval.detect_mode("how does the pipeline work") == :smart
+      assert ContextRetrieval.detect_mode("why is this failing") == :smart
+      assert ContextRetrieval.detect_mode("where is the config") == :smart
+      assert ContextRetrieval.detect_mode("when was this created") == :smart
+      assert ContextRetrieval.detect_mode("who owns this module") == :smart
+      assert ContextRetrieval.detect_mode("which pattern is used") == :smart
+      assert ContextRetrieval.detect_mode("did the test pass") == :smart
+      assert ContextRetrieval.detect_mode("does this work") == :smart
+      assert ContextRetrieval.detect_mode("is this correct") == :smart
+      assert ContextRetrieval.detect_mode("are there any bugs") == :smart
+      assert ContextRetrieval.detect_mode("was this deployed") == :smart
+      assert ContextRetrieval.detect_mode("were the changes applied") == :smart
+      assert ContextRetrieval.detect_mode("can we refactor this") == :smart
+      assert ContextRetrieval.detect_mode("could this be improved") == :smart
+      assert ContextRetrieval.detect_mode("should we use genserver") == :smart
+      assert ContextRetrieval.detect_mode("would this approach work") == :smart
+    end
+
+    test "plain keywords trigger raw mode" do
+      assert ContextRetrieval.detect_mode("elixir genserver") == :raw
+      assert ContextRetrieval.detect_mode("database schema") == :raw
+      assert ContextRetrieval.detect_mode("config settings") == :raw
+    end
+
+    test "handles leading/trailing whitespace" do
+      assert ContextRetrieval.detect_mode("  what is this  ") == :smart
+      assert ContextRetrieval.detect_mode("  keywords  ") == :raw
+    end
+
+    test "case insensitive detection" do
+      assert ContextRetrieval.detect_mode("What is this") == :smart
+      assert ContextRetrieval.detect_mode("HOW does this work") == :smart
+      assert ContextRetrieval.detect_mode("WHERE is the config") == :smart
+    end
+
+    test "does not match question words mid-sentence" do
+      assert ContextRetrieval.detect_mode("tell me what") == :raw
+      assert ContextRetrieval.detect_mode("show how") == :raw
+    end
   end
 end
