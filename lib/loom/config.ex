@@ -134,23 +134,18 @@ defmodule Loom.Config do
     teams budget max_per_team_usd max_per_agent_usd max_per_agent_tokens provider_limits
     models grunt standard expert architect escalation)a
 
+  # Pre-compute a string→atom lookup map so atomize_keys never raises
+  @known_key_map Map.new(@known_keys, fn atom -> {Atom.to_string(atom), atom} end)
+
   defp atomize_keys(map) when is_map(map) do
     Map.new(map, fn
       {key, value} when is_binary(key) ->
-        atom_key =
-          if String.to_existing_atom(key) in @known_keys do
-            String.to_existing_atom(key)
-          else
-            key
-          end
-
+        atom_key = Map.get(@known_key_map, key, key)
         {atom_key, atomize_keys(value)}
 
       {key, value} ->
         {key, atomize_keys(value)}
     end)
-  rescue
-    ArgumentError -> Map.new(map, fn {k, v} -> {k, atomize_keys(v)} end)
   end
 
   defp atomize_keys(list) when is_list(list), do: Enum.map(list, &atomize_keys/1)

@@ -187,7 +187,8 @@ defmodule Loom.Teams.Agent do
   @impl true
   def handle_cast({:assign_task, task}, state) do
     Logger.info("[Agent:#{state.name}] Assigned task: #{inspect(task[:id] || task)}")
-    {:noreply, %{state | task: task}}
+    model = ModelRouter.select(state.role, task)
+    {:noreply, %{state | task: task, model: model}}
   end
 
   @impl true

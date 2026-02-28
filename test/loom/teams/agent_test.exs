@@ -59,8 +59,8 @@ defmodule Loom.Teams.AgentTest do
       %{pid: pid} = start_agent(role: :lead)
       state = :sys.get_state(pid)
 
-      # Lead uses :architect tier → "anthropic:claude-opus-4-6"
-      assert state.model == "anthropic:claude-opus-4-6"
+      # Under 5.7, all roles use the uniform default model
+      assert state.model == Loom.Teams.ModelRouter.default_model()
     end
 
     test "researcher gets read-only tools" do

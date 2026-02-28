@@ -19,6 +19,12 @@ defmodule Loom.Teams.AgentEscalationTest do
     on_exit(fn ->
       ModelRouter.reset_tracking(team_id)
       CostTracker.reset_team(team_id)
+      # Clean up any escalation config set during tests
+      try do
+        Loom.Config.put(:teams, %{})
+      rescue
+        _ -> :ok
+      end
     end)
 
     %{team_id: team_id, agent_name: agent_name, task_id: task_id}
@@ -38,8 +44,21 @@ defmodule Loom.Teams.AgentEscalationTest do
       assert ModelRouter.should_escalate?(ctx.team_id, ctx.agent_name, ctx.task_id)
     end
 
-    test "full escalation sequence: record failures -> check -> escalate -> track", ctx do
+    test "escalate returns :disabled without configured escalation chain", _ctx do
+      # Under 5.7 opt-in behavior, escalate returns :disabled when no
+      # [teams.models].escalation is configured
+      assert :disabled = ModelRouter.escalate("zai:glm-4.5")
+      assert :disabled = ModelRouter.escalate("zai:glm-5")
+      assert :disabled = ModelRouter.escalate("anthropic:claude-sonnet-4-6")
+    end
+
+    test "full escalation sequence with configured chain: failures -> check -> escalate -> track",
+         ctx do
       starting_model = "zai:glm-4.5"
+      chain = ["zai:glm-4.5", "zai:glm-5", "anthropic:claude-sonnet-4-6", "anthropic:claude-opus-4-6"]
+
+      # Configure escalation chain
+      Loom.Config.put(:teams, %{models: %{escalation: chain}})
 
       # First failure — no escalation yet
       :ok = ModelRouter.record_failure(ctx.team_id, ctx.agent_name, ctx.task_id)
@@ -68,11 +87,14 @@ defmodule Loom.Teams.AgentEscalationTest do
       assert hd(escalations).to == "zai:glm-5"
     end
 
-    test "full chain escalation through all tiers", ctx do
-      models = ["zai:glm-4.5", "zai:glm-5", "anthropic:claude-sonnet-4-6", "anthropic:claude-opus-4-6"]
+    test "full chain escalation through all tiers with configured escalation", ctx do
+      chain = ["zai:glm-4.5", "zai:glm-5", "anthropic:claude-sonnet-4-6", "anthropic:claude-opus-4-6"]
+
+      # Configure escalation chain
+      Loom.Config.put(:teams, %{models: %{escalation: chain}})
 
       # Walk through the full escalation chain
-      Enum.chunk_every(models, 2, 1, :discard)
+      Enum.chunk_every(chain, 2, 1, :discard)
       |> Enum.each(fn [current, expected_next] ->
         assert {:ok, ^expected_next} = ModelRouter.escalate(current)
 
@@ -92,8 +114,12 @@ defmodule Loom.Teams.AgentEscalationTest do
       assert e3.from == "anthropic:claude-sonnet-4-6" and e3.to == "anthropic:claude-opus-4-6"
     end
 
-    test "success after escalation records correctly", ctx do
+    test "success after escalation records correctly with configured chain", ctx do
       current_model = "zai:glm-5"
+      chain = ["zai:glm-4.5", "zai:glm-5", "anthropic:claude-sonnet-4-6", "anthropic:claude-opus-4-6"]
+
+      # Configure escalation chain
+      Loom.Config.put(:teams, %{models: %{escalation: chain}})
 
       # Fail twice to trigger escalation
       :ok = ModelRouter.record_failure(ctx.team_id, ctx.agent_name, ctx.task_id)

@@ -276,17 +276,20 @@ defmodule Loom.Teams.ModelRouter do
   # ── Private ──────────────────────────────────────────────────────────
 
   defp resolve_hint(hint) when is_atom(hint) do
-    # Legacy tier atom hint — resolve to the tier's model string
-    Map.get(@legacy_tier_models, hint, default_model())
+    # Legacy tier atom hint — check configured tiers first, fall back to legacy
+    tiers = configured_tiers()
+    Map.get(tiers, hint, default_model())
   end
 
   defp resolve_hint(hint) when is_binary(hint) do
     # Could be a legacy tier name string or a full model string
+    tiers = configured_tiers()
+
     case hint do
-      "grunt" -> @legacy_tier_models[:grunt]
-      "standard" -> @legacy_tier_models[:standard]
-      "expert" -> @legacy_tier_models[:expert]
-      "architect" -> @legacy_tier_models[:architect]
+      "grunt" -> Map.get(tiers, :grunt, default_model())
+      "standard" -> Map.get(tiers, :standard, default_model())
+      "expert" -> Map.get(tiers, :expert, default_model())
+      "architect" -> Map.get(tiers, :architect, default_model())
       model_string -> model_string
     end
   end

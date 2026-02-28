@@ -77,6 +77,29 @@ defmodule Loom.ConfigTest do
       File.rm_rf!(@test_dir)
     end
 
+    test "unknown TOML sections do not prevent known keys from atomizing" do
+      File.mkdir_p!(@test_dir)
+
+      toml_content = """
+      [model]
+      default = "openai:gpt-4o"
+
+      [my_custom_thing]
+      foo = "bar"
+      """
+
+      File.write!(Path.join(@test_dir, ".loom.toml"), toml_content)
+
+      Loom.Config.load(@test_dir)
+
+      # Known keys should still be atomized and accessible
+      assert Loom.Config.get(:model, :default) == "openai:gpt-4o"
+      # Defaults preserved via deep merge
+      assert Loom.Config.get(:model, :weak) == "anthropic:claude-haiku-4-5"
+    after
+      File.rm_rf!(@test_dir)
+    end
+
     test "uses defaults when .loom.toml doesn't exist" do
       Loom.Config.load("/tmp/nonexistent_loom_path")
 
