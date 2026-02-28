@@ -14,6 +14,9 @@ defmodule Loomkin.Application do
     # Create ETS table for Plug session store (must exist before endpoint starts)
     :ets.new(:loomkin_sessions, [:named_table, :public, :set])
 
+    # Create ETS table for Plug session store (must exist before endpoint starts)
+    :ets.new(:loom_sessions, [:named_table, :public, :set])
+
     children =
       [
         # Storage
