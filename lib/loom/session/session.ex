@@ -3,12 +3,10 @@ defmodule Loom.Session do
 
   use GenServer
 
-  alias Loom.Session.{Architect, ContextWindow, Persistence}
-  alias Loom.Telemetry, as: LoomTelemetry
+  alias Loom.AgentLoop
+  alias Loom.Session.{Architect, Persistence}
 
   require Logger
-
-  @max_tool_iterations 25
 
   defstruct [
     :id,
@@ -175,7 +173,7 @@ defmodule Loom.Session do
         end
 
       :normal ->
-        # Normal mode: standard agent loop
+        # Normal mode: delegate to AgentLoop
         # 1. Save user message to DB
         {:ok, _user_msg} =
           Persistence.save_message(%{
@@ -188,19 +186,23 @@ defmodule Loom.Session do
         state = %{state | messages: state.messages ++ [user_message]}
         broadcast(state.id, {:new_message, state.id, user_message})
 
-        # 2. Run the agent loop
-        case agent_loop(state, 0) do
-          {:ok, response_text, state} ->
+        # 2. Run the agent loop via AgentLoop
+        loop_opts = build_loop_opts(state)
+
+        case AgentLoop.run(state.messages, loop_opts) do
+          {:ok, response_text, messages, _metadata} ->
+            state = sync_messages_from_loop(state, messages)
             state = update_status(state, :idle)
             {:reply, {:ok, response_text}, state}
 
-          {:error, reason, state} ->
+          {:error, reason, messages} ->
+            state = sync_messages_from_loop(state, messages)
             state = update_status(state, :idle)
             {:reply, {:error, reason}, state}
 
-          {:pending_permission, state} ->
-            # Save the reply ref — we'll GenServer.reply when permission is resolved
-            pending = Map.put(state.pending_permission, :from, from)
+          {:pending_permission, pending_info, messages} ->
+            state = sync_messages_from_loop(state, messages)
+            pending = Map.put(pending_info, :from, from)
             {:noreply, %{state | pending_permission: pending}}
         end
     end
@@ -236,260 +238,125 @@ defmodule Loom.Session do
   @impl true
   def handle_cast({:permission_response, action, _meta}, state) do
     pending = state.pending_permission
+    pending_data = pending.pending_data
 
-    state =
+    result_text =
       case action do
         "allow_once" ->
-          result_text = run_and_format_tool(pending.tool_module, pending.tool_args, pending.context)
-          record_tool_result(state, pending.tool_name, pending.tool_call_id, result_text)
+          AgentLoop.default_run_tool(pending_data.tool_module, pending_data.tool_args, pending_data.context)
 
         "allow_always" ->
-          Loom.Permissions.Manager.grant(pending.tool_name, "*", state.id)
-          result_text = run_and_format_tool(pending.tool_module, pending.tool_args, pending.context)
-          record_tool_result(state, pending.tool_name, pending.tool_call_id, result_text)
+          Loom.Permissions.Manager.grant(pending_data.tool_name, "*", state.id)
+          AgentLoop.default_run_tool(pending_data.tool_module, pending_data.tool_args, pending_data.context)
 
         "deny" ->
-          result_text = "Error: Permission denied by user for #{pending.tool_name} on #{pending.tool_path}"
-          record_tool_result(state, pending.tool_name, pending.tool_call_id, result_text)
+          "Error: Permission denied by user for #{pending_data.tool_name} on #{pending_data.tool_path}"
       end
 
-    state = %{state | pending_permission: nil}
-    resume_agent_loop(state, pending)
-  end
+    from = pending.from
 
-  defp resume_agent_loop(state, pending) do
-    # Process remaining tool calls from the batch
-    case execute_tool_calls(pending.remaining_tool_calls, state) do
-      {:ok, state} ->
-        update_usage(state.id, pending.response)
+    case AgentLoop.resume(result_text, pending, state.messages) do
+      {:ok, response_text, messages, _metadata} ->
+        state = sync_messages_from_loop(state, messages)
+        state = update_status(state, :idle)
+        state = %{state | pending_permission: nil}
+        GenServer.reply(from, {:ok, response_text})
+        {:noreply, state}
 
-        case agent_loop(state, pending.iteration + 1) do
-          {:ok, response_text, state} ->
-            state = update_status(state, :idle)
-            GenServer.reply(pending.from, {:ok, response_text})
-            {:noreply, state}
+      {:error, reason, messages} ->
+        state = sync_messages_from_loop(state, messages)
+        state = update_status(state, :idle)
+        state = %{state | pending_permission: nil}
+        GenServer.reply(from, {:error, reason})
+        {:noreply, state}
 
-          {:error, reason, state} ->
-            state = update_status(state, :idle)
-            GenServer.reply(pending.from, {:error, reason})
-            {:noreply, state}
-
-          {:pending_permission, state} ->
-            # Another permission request in the same flow
-            new_pending = Map.put(state.pending_permission, :from, pending.from)
-            {:noreply, %{state | pending_permission: new_pending}}
-        end
-
-      {:pending, remaining, state} ->
-        # Another tool in the same batch needs permission
-        new_pending =
-          Map.merge(state.pending_permission, %{
-            remaining_tool_calls: remaining,
-            response: pending.response,
-            iteration: pending.iteration,
-            from: pending.from
-          })
-
+      {:pending_permission, new_pending_info, messages} ->
+        state = sync_messages_from_loop(state, messages)
+        new_pending = Map.put(new_pending_info, :from, from)
         {:noreply, %{state | pending_permission: new_pending}}
     end
   end
 
-  # --- Private ---
+  # --- Private: AgentLoop integration ----------------------------------------
 
-  defp agent_loop(state, iteration) when iteration >= @max_tool_iterations do
-    error_msg = "Maximum tool call iterations (#{@max_tool_iterations}) exceeded."
-    Logger.warning(error_msg)
-    {:error, error_msg, state}
+  defp build_loop_opts(state) do
+    session_id = state.id
+
+    [
+      model: state.model,
+      tools: state.tools,
+      system_prompt: build_system_prompt(state),
+      max_iterations: 25,
+      project_path: state.project_path,
+      session_id: session_id,
+      on_event: fn event_name, payload ->
+        handle_loop_event(session_id, event_name, payload)
+      end,
+      check_permission: fn tool_name, tool_path ->
+        check_permission(tool_name, tool_path, state)
+      end
+    ]
   end
 
-  defp agent_loop(state, iteration) do
-    # Build system prompt
-    system_prompt = build_system_prompt(state)
+  defp handle_loop_event(session_id, event_name, payload) do
+    case event_name do
+      :new_message ->
+        # Persist the message and broadcast
+        persist_loop_message(session_id, payload)
+        broadcast(session_id, {:new_message, session_id, payload})
 
-    # Window messages with Phase 2 intelligence injection
-    windowed =
-      ContextWindow.build_messages(state.messages, system_prompt,
-        model: state.model,
-        session_id: state.id,
-        project_path: state.project_path
-      )
+      :tool_executing ->
+        broadcast(session_id, {:tool_executing, session_id, payload.tool_name})
 
-    # Build req_llm messages
-    {provider, model_id} = parse_model(state.model)
-    req_messages = build_req_messages(windowed)
+      :tool_complete ->
+        broadcast(session_id, {:tool_complete, session_id, payload.tool_name, payload.result})
 
-    # Build tool definitions for the LLM
-    tool_defs = build_tool_definitions(state.tools)
+      :tool_calls_received ->
+        update_status_by_id(session_id, :executing_tool)
 
-    # Call LLM
-    opts = if tool_defs != [], do: [tools: tool_defs], else: []
+      :usage ->
+        Persistence.update_costs(
+          session_id,
+          payload.input_tokens,
+          payload.output_tokens,
+          payload.total_cost
+        )
 
-    telemetry_meta = %{session_id: state.id, model: state.model, iteration: iteration}
-
-    case LoomTelemetry.span_llm_request(telemetry_meta, fn ->
-           call_llm(provider, model_id, req_messages, opts)
-         end) do
-      {:ok, response} ->
-        classified = ReqLLM.Response.classify(response)
-        handle_classified(classified, response, state, iteration)
-
-      {:error, reason} ->
-        {:error, reason, state}
+      _ ->
+        :ok
     end
   end
 
-  defp handle_classified(%{type: :tool_calls} = classified, response, state, iteration) do
-    state = update_status(state, :executing_tool)
+  defp persist_loop_message(session_id, %{role: :assistant} = msg) do
+    attrs = %{session_id: session_id, role: :assistant, content: msg.content}
 
-    # Save assistant message with tool calls
-    tool_calls_json = encode_tool_calls(classified.tool_calls)
+    attrs =
+      if msg[:tool_calls] && msg[:tool_calls] != [] do
+        Map.put(attrs, :tool_calls, encode_tool_calls(msg.tool_calls))
+      else
+        attrs
+      end
 
+    {:ok, _} = Persistence.save_message(attrs)
+  end
+
+  defp persist_loop_message(session_id, %{role: :tool} = msg) do
     {:ok, _} =
       Persistence.save_message(%{
-        session_id: state.id,
-        role: :assistant,
-        content: classified.text,
-        tool_calls: tool_calls_json
-      })
-
-    assistant_msg = %{
-      role: :assistant,
-      content: classified.text,
-      tool_calls: classified.tool_calls
-    }
-
-    state = %{state | messages: state.messages ++ [assistant_msg]}
-    broadcast(state.id, {:new_message, state.id, assistant_msg})
-
-    # Execute tool calls with early halt on pending permission
-    case execute_tool_calls(classified.tool_calls, state) do
-      {:ok, state} ->
-        update_usage(state.id, response)
-        agent_loop(state, iteration + 1)
-
-      {:pending, remaining_tool_calls, state} ->
-        pending =
-          Map.merge(state.pending_permission, %{
-            remaining_tool_calls: remaining_tool_calls,
-            response: response,
-            iteration: iteration
-          })
-
-        {:pending_permission, %{state | pending_permission: pending}}
-    end
-  end
-
-  defp handle_classified(%{type: :final_answer} = classified, response, state, _iteration) do
-    response_text = classified.text
-
-    # Save assistant message
-    {:ok, _} =
-      Persistence.save_message(%{
-        session_id: state.id,
-        role: :assistant,
-        content: response_text
-      })
-
-    assistant_msg = %{role: :assistant, content: response_text}
-    state = %{state | messages: state.messages ++ [assistant_msg]}
-    broadcast(state.id, {:new_message, state.id, assistant_msg})
-
-    # Update token counts
-    update_usage(state.id, response)
-
-    {:ok, response_text, state}
-  end
-
-  defp execute_tool_calls([], state), do: {:ok, state}
-
-  defp execute_tool_calls([tool_call | rest], state) do
-    case execute_tool_call(tool_call, state) do
-      {:ok, state} -> execute_tool_calls(rest, state)
-      {:pending, state} -> {:pending, rest, state}
-    end
-  end
-
-  defp execute_tool_call(tool_call, state) do
-    tool_name = tool_call[:name]
-    tool_args = tool_call[:arguments] || %{}
-    tool_call_id = tool_call[:id] || "call_#{Ecto.UUID.generate()}"
-
-    context = %{project_path: state.project_path, session_id: state.id}
-    tool_path = tool_args["file_path"] || tool_args["path"] || "*"
-
-    broadcast(state.id, {:tool_executing, state.id, tool_name})
-
-    case Jido.AI.ToolAdapter.lookup_action(tool_name, state.tools) do
-      {:error, :not_found} ->
-        result_text = "Error: Tool '#{tool_name}' not found"
-        {:ok, record_tool_result(state, tool_name, tool_call_id, result_text)}
-
-      {:ok, tool_module} ->
-        case check_permission(tool_name, tool_path, state) do
-          :allowed ->
-            result_text = run_and_format_tool(tool_module, tool_args, context)
-            {:ok, record_tool_result(state, tool_name, tool_call_id, result_text)}
-
-          :pending ->
-            pending = %{
-              tool_call: tool_call,
-              tool_module: tool_module,
-              tool_name: tool_name,
-              tool_path: tool_path,
-              tool_call_id: tool_call_id,
-              tool_args: tool_args,
-              context: context
-            }
-
-            {:pending, %{state | pending_permission: pending}}
-        end
-    end
-  end
-
-  defp run_and_format_tool(tool_module, tool_args, context) do
-    tool_meta = %{
-      tool_name: tool_module |> Module.split() |> List.last() |> Macro.underscore(),
-      session_id: context[:session_id]
-    }
-
-    result =
-      LoomTelemetry.span_tool_execute(tool_meta, fn ->
-        try do
-          Jido.Exec.run(tool_module, tool_args, context, timeout: 60_000)
-        rescue
-          e -> {:error, Exception.message(e)}
-        end
-      end)
-
-    format_tool_result(result)
-  end
-
-  defp format_tool_result(result) do
-    case result do
-      {:ok, %{result: text}} -> text
-      {:ok, text} when is_binary(text) -> text
-      {:ok, map} when is_map(map) -> inspect(map)
-      {:error, %{message: msg}} -> "Error: #{msg}"
-      {:error, text} when is_binary(text) -> "Error: #{text}"
-      {:error, reason} -> "Error: #{inspect(reason)}"
-    end
-  end
-
-  defp record_tool_result(state, tool_name, tool_call_id, result_text) do
-    {:ok, _} =
-      Persistence.save_message(%{
-        session_id: state.id,
+        session_id: session_id,
         role: :tool,
-        content: result_text,
-        tool_call_id: tool_call_id
+        content: msg.content,
+        tool_call_id: msg[:tool_call_id]
       })
-
-    broadcast(state.id, {:tool_complete, state.id, tool_name, result_text})
-
-    tool_msg = %{role: :tool, content: result_text, tool_call_id: tool_call_id}
-    broadcast(state.id, {:new_message, state.id, tool_msg})
-    %{state | messages: state.messages ++ [tool_msg]}
   end
+
+  defp persist_loop_message(_session_id, _msg), do: :ok
+
+  defp sync_messages_from_loop(state, messages) do
+    %{state | messages: messages}
+  end
+
+  # --- Private: Session-specific logic ----------------------------------------
 
   defp check_permission(tool_name, tool_path, state) do
     case Loom.Permissions.Manager.check(tool_name, tool_path, state.id) do
@@ -503,56 +370,9 @@ defmodule Loom.Session do
         else
           # Broadcast permission request to LiveView instead of blocking on terminal I/O
           broadcast(state.id, {:permission_request, state.id, tool_name, tool_path})
-          :pending
+          {:pending, %{}}
         end
     end
-  end
-
-  defp build_tool_definitions([]), do: []
-
-  defp build_tool_definitions(tools) do
-    Jido.AI.ToolAdapter.from_actions(tools)
-  end
-
-  defp call_llm(provider, model_id, messages, opts) do
-    model_spec = "#{provider}:#{model_id}"
-
-    try do
-      ReqLLM.generate_text(model_spec, messages, opts)
-    rescue
-      e -> {:error, Exception.message(e)}
-    end
-  end
-
-  defp build_req_messages(windowed_messages) do
-    Enum.map(windowed_messages, fn msg ->
-      case msg.role do
-        :system ->
-          ReqLLM.Context.system(msg.content)
-
-        :user ->
-          ReqLLM.Context.user(msg.content)
-
-        :assistant ->
-          if msg[:tool_calls] && msg[:tool_calls] != [] do
-            tool_calls =
-              Enum.map(msg.tool_calls, fn tc ->
-                {tc[:name] || tc["name"], tc[:arguments] || tc["arguments"] || %{},
-                 id: tc[:id] || tc["id"]}
-              end)
-
-            ReqLLM.Context.assistant(msg.content || "", tool_calls: tool_calls)
-          else
-            ReqLLM.Context.assistant(msg.content || "")
-          end
-
-        :tool ->
-          ReqLLM.Context.tool_result(
-            msg[:tool_call_id] || "",
-            msg.content || ""
-          )
-      end
-    end)
   end
 
   defp build_system_prompt(state) do
@@ -568,13 +388,6 @@ defmodule Loom.Session do
     - Prefer minimal, focused edits over large rewrites
     - Always consider security implications
     """
-  end
-
-  defp parse_model(model_string) do
-    case String.split(model_string, ":", parts: 2) do
-      [provider, model_id] -> {provider, model_id}
-      _ -> {"anthropic", model_string}
-    end
   end
 
   defp load_or_create_session(session_id, model, project_path, title) do
@@ -633,20 +446,6 @@ defmodule Loom.Session do
     end)
   end
 
-  defp update_usage(session_id, response) do
-    case ReqLLM.Response.usage(response) do
-      %{} = usage ->
-        input = usage[:input_tokens] || usage["input_tokens"] || 0
-        output = usage[:output_tokens] || usage["output_tokens"] || 0
-        cost = usage[:total_cost] || usage["total_cost"] || 0
-
-        Persistence.update_costs(session_id, input, output, cost)
-
-      _ ->
-        :ok
-    end
-  end
-
   defp update_status(state, new_status) do
     # Update registry metadata
     if state.id do
@@ -656,6 +455,14 @@ defmodule Loom.Session do
     broadcast(state.id, {:session_status, state.id, new_status})
 
     %{state | status: new_status}
+  end
+
+  defp update_status_by_id(session_id, new_status) do
+    if session_id do
+      Registry.update_value(Loom.SessionRegistry, session_id, fn _ -> new_status end)
+    end
+
+    broadcast(session_id, {:session_status, session_id, new_status})
   end
 
   defp default_model do
