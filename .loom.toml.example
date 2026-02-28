@@ -1,0 +1,16 @@
+[model]
+default = "anthropic:claude-sonnet-4-6"
+weak = "anthropic:claude-haiku-4-5"     # for summarization, commit messages
+
+[permissions]
+auto_approve = ["file_read", "file_search", "content_search", "directory_list"]
+
+[context]
+max_repo_map_tokens = 2048
+max_decision_context_tokens = 1024
+reserved_output_tokens = 4096
+
+[decisions]
+enabled = true
+enforce_pre_edit = false
+auto_log_commits = true

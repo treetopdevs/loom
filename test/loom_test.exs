@@ -1,8 +1,7 @@
 defmodule LoomTest do
-  use ExUnit.Case
-  doctest Loom
+  use ExUnit.Case, async: true
 
-  test "greets the world" do
-    assert Loom.hello() == :world
+  test "version is defined" do
+    assert Loom.version() != nil
   end
 end
