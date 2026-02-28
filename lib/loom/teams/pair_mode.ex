@@ -43,10 +43,6 @@ defmodule Loom.Teams.PairMode do
       {:error, :same_agent}
     else
       pair_id = Ecto.UUID.generate()
-      topic = pair_topic(team_id, pair_id)
-
-      # Subscribe both agents to the pair topic
-      Phoenix.PubSub.subscribe(Loom.PubSub, topic)
 
       pair_info = %{
         pair_id: pair_id,

@@ -44,10 +44,21 @@ defmodule Loom.Teams.Cluster do
   def child_spec(_opts) do
     topologies = topologies()
 
-    %{
-      id: __MODULE__,
-      start: {Cluster.Supervisor, :start_link, [topologies, [name: Loom.ClusterSupervisor]]}
-    }
+    if Code.ensure_loaded?(Cluster.Supervisor) do
+      %{
+        id: __MODULE__,
+        start: {Cluster.Supervisor, :start_link, [topologies, [name: Loom.ClusterSupervisor]]}
+      }
+    else
+      # Stub when libcluster is not installed — logs warning on start
+      %{
+        id: __MODULE__,
+        start: {Task, :start_link, [fn ->
+          Logger.warning("[Cluster] libcluster not available — clustering disabled")
+          Process.sleep(:infinity)
+        end]}
+      }
+    end
   end
 
   @doc "List all connected nodes (including self)."
@@ -112,9 +123,12 @@ defmodule Loom.Teams.Cluster do
 
   defp distributed_agent_counts do
     # When Horde is available, query the distributed registry
-    if Code.ensure_loaded?(Horde.Registry) do
-      Horde.Registry.select(Loom.Teams.DistributedAgentRegistry, [
-        {{:"$1", :"$2", :"$3"}, [], [:"$2"]}
+    horde_reg = Horde.Registry
+
+    if Code.ensure_loaded?(horde_reg) do
+      apply(horde_reg, :select, [
+        Loom.Teams.DistributedAgentRegistry,
+        [{{:"$1", :"$2", :"$3"}, [], [:"$2"]}]
       ])
       |> Enum.group_by(&node/1)
       |> Map.new(fn {n, pids} -> {n, length(pids)} end)

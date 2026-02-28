@@ -125,14 +125,8 @@ defmodule Loom.Teams.Templates do
   def save_template(name, agents_config) do
     template = parse_template(name, %{"agents" => agents_config})
 
-    toml =
-      [
-        "[teams.templates.#{name}]",
-        "" | format_agents_toml(template.agents)
-      ]
-      |> Enum.join("\n")
-
-    {:ok, toml}
+    toml_lines = ["[teams.templates.#{name}]", "" | format_agents_toml(template.agents)]
+    {:ok, Enum.join(toml_lines, "\n")}
   end
 
   # --- Private ---
@@ -196,21 +190,22 @@ defmodule Loom.Teams.Templates do
 
   defp format_agents_toml(agents) do
     Enum.flat_map(agents, fn agent ->
-      lines = ["[[teams.templates.#{agent.name}.agents]]"]
-      lines = lines ++ ["name = \"#{agent.name}\""]
-      lines = lines ++ ["role = \"#{agent.role}\""]
+      lines = ["{name = \"#{agent.name}\", role = \"#{agent.role}\""]
 
       lines =
         if agent.model,
-          do: lines ++ ["model = \"#{agent.model}\""],
+          do: [hd(lines) <> ", model = \"#{agent.model}\"" | tl(lines)],
           else: lines
 
       lines =
         if agent.count > 1,
-          do: lines ++ ["count = #{agent.count}"],
+          do: [hd(lines) <> ", count = #{agent.count}" | tl(lines)],
           else: lines
 
-      lines ++ [""]
+      [hd(lines) <> "}"]
+    end)
+    |> then(fn entries ->
+      ["agents = [", Enum.map_join(entries, ",\n  ", & &1), "]"]
     end)
   end
 end

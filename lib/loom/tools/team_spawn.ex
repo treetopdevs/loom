@@ -66,11 +66,24 @@ defmodule Loom.Tools.TeamSpawn do
           Enum.map(roles, fn role_map ->
             name = Map.get(role_map, :name) || Map.get(role_map, "name")
             role = Map.get(role_map, :role) || Map.get(role_map, "role")
-            role_atom = if is_binary(role), do: String.to_existing_atom(role), else: role
+            role_atom =
+              if is_binary(role) do
+                try do
+                  String.to_existing_atom(role)
+                rescue
+                  ArgumentError -> nil
+                end
+              else
+                role
+              end
 
-            case Manager.spawn_agent(team_id, name, role_atom, project_path: project_path) do
-              {:ok, _pid} -> "  - #{name} (#{role}): spawned"
-              {:error, reason} -> "  - #{name} (#{role}): failed - #{inspect(reason)}"
+            if is_nil(role_atom) do
+              "  - #{name} (#{role}): failed - unknown role"
+            else
+              case Manager.spawn_agent(team_id, name, role_atom, project_path: project_path) do
+                {:ok, _pid} -> "  - #{name} (#{role}): spawned"
+                {:error, reason} -> "  - #{name} (#{role}): failed - #{inspect(reason)}"
+              end
             end
           end)
 

@@ -193,6 +193,11 @@ defmodule Loom.Teams.Agent do
   end
 
   @impl true
+  def handle_call(:get_state, _from, state) do
+    {:reply, Map.from_struct(state), state}
+  end
+
+  @impl true
   def handle_call({:change_role, new_role, opts}, _from, state) do
     if opts[:require_approval] do
       # Send approval request to lead and wait synchronously
@@ -346,6 +351,122 @@ defmodule Loom.Teams.Agent do
     {:noreply, state}
   end
 
+  # --- Debate protocol handlers ---
+
+  @impl true
+  def handle_info({:debate_start, debate_id, topic, participants}, state) do
+    Phoenix.PubSub.subscribe(Loom.PubSub, "team:#{state.team_id}:debate:#{debate_id}")
+
+    msg = %{
+      role: :system,
+      content:
+        "[Debate #{debate_id}] Started on topic: #{topic}. Participants: #{Enum.join(participants, ", ")}"
+    }
+
+    {:noreply, %{state | messages: state.messages ++ [msg]}}
+  end
+
+  @impl true
+  def handle_info({:debate_propose, debate_id, round_num, topic}, state) do
+    spawn_debate_response(state, debate_id, :proposal, """
+    [Debate round #{round_num}] Propose your solution for: #{topic}
+    Respond with a clear, concise proposal.
+    """)
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:debate_critique, debate_id, round_num, proposals}, state) do
+    proposals_text =
+      Enum.map_join(proposals, "\n", fn p ->
+        "- #{p.from}: #{p[:content] || p[:description] || inspect(p)}"
+      end)
+
+    spawn_debate_response(state, debate_id, :critique, """
+    [Debate round #{round_num}] Critique these proposals:
+    #{proposals_text}
+    Provide specific, constructive feedback.
+    """)
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:debate_revise, debate_id, round_num, critiques}, state) do
+    critiques_text =
+      Enum.map_join(critiques, "\n", fn c ->
+        "- #{c.from}: #{c[:content] || inspect(c)}"
+      end)
+
+    spawn_debate_response(state, debate_id, :revision, """
+    [Debate round #{round_num}] Revise your proposal based on feedback:
+    #{critiques_text}
+    Provide your revised proposal.
+    """)
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:debate_vote, debate_id, proposals}, state) do
+    proposals_text =
+      Enum.map_join(proposals, "\n", fn p ->
+        "- #{p.from}: #{p[:content] || p[:description] || inspect(p)}"
+      end)
+
+    spawn_debate_response(state, debate_id, :vote, """
+    [Debate] Vote for the best proposal:
+    #{proposals_text}
+    Respond with only the name of the participant whose proposal you choose.
+    """)
+
+    {:noreply, state}
+  end
+
+  # --- Pair programming handlers ---
+
+  @impl true
+  def handle_info({:pair_started, pair_id, my_role, partner_name}, state) do
+    Phoenix.PubSub.subscribe(Loom.PubSub, "team:#{state.team_id}:pair:#{pair_id}")
+
+    msg = %{
+      role: :system,
+      content:
+        "[Pair #{pair_id}] You are the #{my_role} paired with #{partner_name}. " <>
+          if(my_role == :reviewer,
+            do: "Watch the coder's work and interject if you spot issues.",
+            else: "Broadcast your intent before editing, and share diffs after changes."
+          )
+    }
+
+    {:noreply, %{state | messages: state.messages ++ [msg]}}
+  end
+
+  @impl true
+  def handle_info({:pair_stopped, pair_id}, state) do
+    Phoenix.PubSub.unsubscribe(Loom.PubSub, "team:#{state.team_id}:pair:#{pair_id}")
+
+    msg = %{role: :system, content: "[Pair #{pair_id}] Pair session ended."}
+    {:noreply, %{state | messages: state.messages ++ [msg]}}
+  end
+
+  @impl true
+  def handle_info({:pair_event, %{event: event, from: from, payload: payload}}, state) do
+    summary =
+      case event do
+        :intent_broadcast -> "#{from} intends to: #{payload[:description] || inspect(payload)}"
+        :file_edited -> "#{from} edited: #{payload[:file] || payload[:path] || inspect(payload)}"
+        :review_feedback -> "#{from} feedback: #{payload[:feedback] || inspect(payload)}"
+        :review_approved -> "#{from} approved the changes"
+        :review_rejected -> "#{from} rejected: #{payload[:reason] || inspect(payload)}"
+        other -> "#{from}: #{other} #{inspect(payload)}"
+      end
+
+    msg = %{role: :system, content: "[Pair] #{summary}"}
+    {:noreply, %{state | messages: state.messages ++ [msg]}}
+  end
+
   @impl true
   def handle_info(_msg, state) do
     {:noreply, state}
@@ -401,6 +522,37 @@ defmodule Loom.Teams.Agent do
     })
   rescue
     _ -> :ok
+  end
+
+  defp spawn_debate_response(state, debate_id, phase, prompt) do
+    team_id = state.team_id
+    agent_name = to_string(state.name)
+    model = state.model
+    messages = state.messages ++ [%{role: :user, content: prompt}]
+
+    Task.Supervisor.start_child(Loom.Teams.TaskSupervisor, fn ->
+      loop_opts = [
+        model: model,
+        tools: [],
+        system_prompt: "You are participating in a structured debate. Respond concisely.",
+        max_iterations: 1,
+        project_path: state.project_path
+      ]
+
+      response_text =
+        case AgentLoop.run(messages, loop_opts) do
+          {:ok, text, _msgs, _meta} -> text
+          _ -> "No response"
+        end
+
+      response =
+        case phase do
+          :vote -> %{from: agent_name, choice: response_text}
+          _ -> %{from: agent_name, content: response_text}
+        end
+
+      Loom.Teams.Debate.submit_response(team_id, debate_id, phase, response)
+    end)
   end
 
   defp attempt_escalation(state, messages) do

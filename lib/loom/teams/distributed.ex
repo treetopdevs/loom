@@ -26,6 +26,11 @@ defmodule Loom.Teams.Distributed do
   @local_supervisor Loom.Teams.AgentSupervisor
   @local_registry Loom.Teams.AgentRegistry
 
+  # Runtime-resolved Horde modules to avoid compile-time warnings when
+  # Horde is not installed. All Horde calls go through apply/3.
+  @horde_dsup Horde.DynamicSupervisor
+  @horde_reg Horde.Registry
+
   @doc """
   Start the distributed supervisor (Horde-backed).
 
@@ -39,7 +44,7 @@ defmodule Loom.Teams.Distributed do
     %{
       id: name,
       start:
-        {Horde.DynamicSupervisor, :start_link,
+        {@horde_dsup, :start_link,
          [
            [
              name: name,
@@ -64,7 +69,7 @@ defmodule Loom.Teams.Distributed do
     %{
       id: name,
       start:
-        {Horde.Registry, :start_link,
+        {@horde_reg, :start_link,
          [
            [
              name: name,
@@ -103,7 +108,7 @@ defmodule Loom.Teams.Distributed do
           DynamicSupervisor.on_start_child()
   def start_child(child_spec) do
     if Cluster.enabled?() and horde_available?() do
-      Horde.DynamicSupervisor.start_child(@distributed_supervisor, child_spec)
+      apply(@horde_dsup, :start_child, [@distributed_supervisor, child_spec])
     else
       DynamicSupervisor.start_child(@local_supervisor, child_spec)
     end
@@ -115,7 +120,7 @@ defmodule Loom.Teams.Distributed do
   @spec terminate_child(pid()) :: :ok | {:error, :not_found}
   def terminate_child(pid) do
     if Cluster.enabled?() and horde_available?() do
-      Horde.DynamicSupervisor.terminate_child(@distributed_supervisor, pid)
+      apply(@horde_dsup, :terminate_child, [@distributed_supervisor, pid])
     else
       DynamicSupervisor.terminate_child(@local_supervisor, pid)
     end
@@ -129,7 +134,7 @@ defmodule Loom.Teams.Distributed do
   @spec lookup(term()) :: [{pid(), term()}]
   def lookup(key) do
     if Cluster.enabled?() and horde_available?() do
-      Horde.Registry.lookup(@distributed_registry, key)
+      apply(@horde_reg, :lookup, [@distributed_registry, key])
     else
       Registry.lookup(@local_registry, key)
     end
@@ -141,7 +146,7 @@ defmodule Loom.Teams.Distributed do
   @spec register(term(), term()) :: {:ok, pid()} | {:error, {:already_registered, pid()}}
   def register(key, value) do
     if Cluster.enabled?() and horde_available?() do
-      Horde.Registry.register(@distributed_registry, key, value)
+      apply(@horde_reg, :register, [@distributed_registry, key, value])
     else
       Registry.register(@local_registry, key, value)
     end
@@ -170,6 +175,6 @@ defmodule Loom.Teams.Distributed do
   @doc "Check if Horde is loaded and available."
   @spec horde_available?() :: boolean()
   def horde_available? do
-    Code.ensure_loaded?(Horde.DynamicSupervisor) and Code.ensure_loaded?(Horde.Registry)
+    Code.ensure_loaded?(@horde_dsup) and Code.ensure_loaded?(@horde_reg)
   end
 end

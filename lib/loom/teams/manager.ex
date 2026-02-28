@@ -1,7 +1,7 @@
 defmodule Loom.Teams.Manager do
   @moduledoc "Public API for team lifecycle management."
 
-  alias Loom.Teams.{Comms, TableRegistry}
+  alias Loom.Teams.{Comms, Distributed, TableRegistry}
 
   require Logger
 
@@ -115,10 +115,7 @@ defmodule Loom.Teams.Manager do
       model: opts[:model]
     ]
 
-    DynamicSupervisor.start_child(
-      Loom.Teams.AgentSupervisor,
-      {Loom.Teams.Agent, child_opts}
-    )
+    Distributed.start_child({Loom.Teams.Agent, child_opts})
   end
 
   @doc """
@@ -142,10 +139,7 @@ defmodule Loom.Teams.Manager do
       metadata: opts[:metadata] || %{}
     ]
 
-    DynamicSupervisor.start_child(
-      Loom.Teams.AgentSupervisor,
-      {Loom.Teams.ContextKeeper, child_opts}
-    )
+    Distributed.start_child({Loom.Teams.ContextKeeper, child_opts})
   end
 
   @doc "List all context keepers in a team."
@@ -157,7 +151,7 @@ defmodule Loom.Teams.Manager do
   def stop_agent(team_id, name) do
     case find_agent(team_id, name) do
       {:ok, pid} ->
-        DynamicSupervisor.terminate_child(Loom.Teams.AgentSupervisor, pid)
+        Distributed.terminate_child(pid)
 
       :error ->
         :ok

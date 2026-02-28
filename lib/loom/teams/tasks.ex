@@ -4,7 +4,7 @@ defmodule Loom.Teams.Tasks do
   import Ecto.Query
   alias Loom.Repo
   alias Loom.Schemas.{TeamTask, TeamTaskDep}
-  alias Loom.Teams.{Comms, Context, CostTracker}
+  alias Loom.Teams.{Comms, Context, CostTracker, Learning}
 
   def create_task(team_id, attrs) do
     %TeamTask{}
@@ -50,6 +50,7 @@ defmodule Loom.Teams.Tasks do
 
       Comms.broadcast_task_event(task.team_id, {:task_completed, task.id, task.owner, result})
       Context.cache_task(task.team_id, task.id, %{title: task.title, status: :completed, owner: task.owner})
+      record_learning_metric(task, true)
       auto_schedule_unblocked(task.team_id)
     end)
   end
@@ -61,6 +62,7 @@ defmodule Loom.Teams.Tasks do
     |> tap_ok(fn task ->
       Comms.broadcast_task_event(task.team_id, {:task_failed, task.id, task.owner, reason})
       Context.cache_task(task.team_id, task.id, %{title: task.title, status: :failed, owner: task.owner})
+      record_learning_metric(task, false)
     end)
   end
 
@@ -129,6 +131,25 @@ defmodule Loom.Teams.Tasks do
     if available != [] do
       Comms.broadcast_task_event(team_id, {:tasks_unblocked, Enum.map(available, & &1.id)})
     end
+  end
+
+  defp record_learning_metric(task, success?) do
+    if task.owner do
+      usage = CostTracker.get_agent_usage(task.team_id, task.owner)
+
+      Learning.record_task_result(%{
+        team_id: task.team_id,
+        agent_name: task.owner,
+        role: task.role || "unknown",
+        model: usage[:model] || "unknown",
+        task_type: task.task_type || task.title || "general",
+        success: success?,
+        cost_usd: usage.cost || 0.0,
+        tokens_used: (usage[:input_tokens] || 0) + (usage[:output_tokens] || 0)
+      })
+    end
+  rescue
+    _ -> :ok
   end
 
   defp tap_ok({:ok, val} = result, fun) do

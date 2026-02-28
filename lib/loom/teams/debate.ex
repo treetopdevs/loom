@@ -40,7 +40,9 @@ defmodule Loom.Teams.Debate do
   """
   @spec initiate_debate(String.t(), String.t(), [String.t()], keyword()) ::
           {:ok, debate_result()} | {:error, atom()}
-  def initiate_debate(_team_id, _topic, participants, _opts \\ [])
+  def initiate_debate(team_id, topic, participants, opts \\ [])
+
+  def initiate_debate(_team_id, _topic, participants, _opts)
       when length(participants) < 2 do
     {:error, :insufficient_participants}
   end
@@ -62,26 +64,15 @@ defmodule Loom.Teams.Debate do
     end)
 
     rounds =
-      Enum.reduce_while(1..max_rounds, [], fn round_num, acc ->
-        case run_round(team_id, debate_id, topic, participants, round_num, round_timeout, session_id) do
-          {:ok, round_data} ->
-            {:cont, acc ++ [round_data]}
+      Enum.map(1..max_rounds, fn round_num ->
+        {:ok, round_data} =
+          run_round(team_id, debate_id, topic, participants, round_num, round_timeout, session_id)
 
-          {:error, _reason} ->
-            {:halt, {:error_in_round, round_num, acc}}
-        end
+        round_data
       end)
 
-    case rounds do
-      {:error_in_round, _round, collected_rounds} ->
-        # Even on error, tally what we have
-        result = tally_and_build_result(team_id, debate_id, topic, participants, collected_rounds, round_timeout, session_id)
-        {:ok, result}
-
-      collected_rounds when is_list(collected_rounds) ->
-        result = tally_and_build_result(team_id, debate_id, topic, participants, collected_rounds, round_timeout, session_id)
-        {:ok, result}
-    end
+    result = tally_and_build_result(team_id, debate_id, topic, participants, rounds, round_timeout, session_id)
+    {:ok, result}
   end
 
   # -- Round execution --
