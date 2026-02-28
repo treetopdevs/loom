@@ -364,13 +364,20 @@ defmodule Loom.Session do
         :allowed
 
       :ask ->
-        if state.auto_approve do
-          Loom.Permissions.Manager.grant(tool_name, tool_path, state.id)
-          :allowed
-        else
-          # Broadcast permission request to LiveView instead of blocking on terminal I/O
-          broadcast(state.id, {:permission_request, state.id, tool_name, tool_path})
-          {:pending, %{}}
+        cond do
+          state.auto_approve ->
+            Loom.Permissions.Manager.grant(tool_name, tool_path, state.id)
+            :allowed
+
+          Loom.Permissions.Manager.tool_category(tool_name) == :read ->
+            # Read-only tools are safe to auto-approve
+            Loom.Permissions.Manager.grant(tool_name, tool_path, state.id)
+            :allowed
+
+          true ->
+            # Broadcast permission request to LiveView
+            broadcast(state.id, {:permission_request, state.id, tool_name, tool_path})
+            {:pending, %{tool_name: tool_name, tool_path: tool_path}}
         end
     end
   end

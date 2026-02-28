@@ -11,8 +11,8 @@ defmodule Loom.Permissions.Manager do
   alias Loom.Repo
   alias Loom.Schemas.PermissionGrant
 
-  @read_tools ~w(file_read file_search content_search directory_list)
-  @write_tools ~w(file_write file_edit)
+  @read_tools ~w(file_read file_search content_search directory_list decision_query sub_agent lsp_diagnostics)
+  @write_tools ~w(file_write file_edit decision_log)
   @execute_tools ~w(shell git)
 
   @doc """
