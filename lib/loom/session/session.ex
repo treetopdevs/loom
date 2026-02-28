@@ -3,7 +3,8 @@ defmodule Loom.Session do
 
   use GenServer
 
-  alias Loom.Session.{ContextWindow, Persistence}
+  alias Loom.Session.{Architect, ContextWindow, Persistence}
+  alias Loom.Telemetry, as: LoomTelemetry
 
   require Logger
 
@@ -18,7 +19,8 @@ defmodule Loom.Session do
     messages: [],
     tools: [],
     auto_approve: false,
-    pending_permission: nil
+    pending_permission: nil,
+    mode: :normal
   ]
 
   # --- Public API ---
@@ -97,6 +99,32 @@ defmodule Loom.Session do
     end
   end
 
+  @doc "Set the session mode (:normal or :architect)."
+  @spec set_mode(pid() | String.t(), :normal | :architect) :: :ok | {:error, term()}
+  def set_mode(pid, mode) when is_pid(pid) and mode in [:normal, :architect] do
+    GenServer.call(pid, {:set_mode, mode})
+  end
+
+  def set_mode(session_id, mode) when is_binary(session_id) do
+    case Loom.Session.Manager.find_session(session_id) do
+      {:ok, pid} -> set_mode(pid, mode)
+      :error -> {:error, :not_found}
+    end
+  end
+
+  @doc "Get the current session mode (:normal or :architect)."
+  @spec get_mode(pid() | String.t()) :: {:ok, :normal | :architect}
+  def get_mode(pid) when is_pid(pid) do
+    GenServer.call(pid, :get_mode)
+  end
+
+  def get_mode(session_id) when is_binary(session_id) do
+    case Loom.Session.Manager.find_session(session_id) do
+      {:ok, pid} -> get_mode(pid)
+      :error -> {:error, :not_found}
+    end
+  end
+
   # --- GenServer Callbacks ---
 
   @impl true
@@ -133,32 +161,48 @@ defmodule Loom.Session do
   def handle_call({:send_message, text}, from, state) do
     state = update_status(state, :thinking)
 
-    # 1. Save user message to DB
-    {:ok, _user_msg} =
-      Persistence.save_message(%{
-        session_id: state.id,
-        role: :user,
-        content: text
-      })
+    case state.mode do
+      :architect ->
+        # Architect mode: plan with strong model, execute with fast model
+        case Architect.run(text, state) do
+          {:ok, response_text, state} ->
+            state = update_status(state, :idle)
+            {:reply, {:ok, response_text}, state}
 
-    user_message = %{role: :user, content: text}
-    state = %{state | messages: state.messages ++ [user_message]}
-    broadcast(state.id, {:new_message, state.id, user_message})
+          {:error, reason, state} ->
+            state = update_status(state, :idle)
+            {:reply, {:error, reason}, state}
+        end
 
-    # 2. Run the agent loop
-    case agent_loop(state, 0) do
-      {:ok, response_text, state} ->
-        state = update_status(state, :idle)
-        {:reply, {:ok, response_text}, state}
+      :normal ->
+        # Normal mode: standard agent loop
+        # 1. Save user message to DB
+        {:ok, _user_msg} =
+          Persistence.save_message(%{
+            session_id: state.id,
+            role: :user,
+            content: text
+          })
 
-      {:error, reason, state} ->
-        state = update_status(state, :idle)
-        {:reply, {:error, reason}, state}
+        user_message = %{role: :user, content: text}
+        state = %{state | messages: state.messages ++ [user_message]}
+        broadcast(state.id, {:new_message, state.id, user_message})
 
-      {:pending_permission, state} ->
-        # Save the reply ref — we'll GenServer.reply when permission is resolved
-        pending = Map.put(state.pending_permission, :from, from)
-        {:noreply, %{state | pending_permission: pending}}
+        # 2. Run the agent loop
+        case agent_loop(state, 0) do
+          {:ok, response_text, state} ->
+            state = update_status(state, :idle)
+            {:reply, {:ok, response_text}, state}
+
+          {:error, reason, state} ->
+            state = update_status(state, :idle)
+            {:reply, {:error, reason}, state}
+
+          {:pending_permission, state} ->
+            # Save the reply ref — we'll GenServer.reply when permission is resolved
+            pending = Map.put(state.pending_permission, :from, from)
+            {:noreply, %{state | pending_permission: pending}}
+        end
     end
   end
 
@@ -176,6 +220,17 @@ defmodule Loom.Session do
   @impl true
   def handle_call(:get_status, _from, state) do
     {:reply, {:ok, state.status}, state}
+  end
+
+  @impl true
+  def handle_call({:set_mode, mode}, _from, state) do
+    broadcast(state.id, {:mode_changed, state.id, mode})
+    {:reply, :ok, %{state | mode: mode}}
+  end
+
+  @impl true
+  def handle_call(:get_mode, _from, state) do
+    {:reply, {:ok, state.mode}, state}
   end
 
   @impl true
@@ -269,7 +324,11 @@ defmodule Loom.Session do
     # Call LLM
     opts = if tool_defs != [], do: [tools: tool_defs], else: []
 
-    case call_llm(provider, model_id, req_messages, opts) do
+    telemetry_meta = %{session_id: state.id, model: state.model, iteration: iteration}
+
+    case LoomTelemetry.span_llm_request(telemetry_meta, fn ->
+           call_llm(provider, model_id, req_messages, opts)
+         end) do
       {:ok, response} ->
         classified = ReqLLM.Response.classify(response)
         handle_classified(classified, response, state, iteration)
@@ -388,12 +447,19 @@ defmodule Loom.Session do
   end
 
   defp run_and_format_tool(tool_module, tool_args, context) do
+    tool_meta = %{
+      tool_name: tool_module |> Module.split() |> List.last() |> Macro.underscore(),
+      session_id: context[:session_id]
+    }
+
     result =
-      try do
-        Jido.Exec.run(tool_module, tool_args, context, timeout: 60_000)
-      rescue
-        e -> {:error, Exception.message(e)}
-      end
+      LoomTelemetry.span_tool_execute(tool_meta, fn ->
+        try do
+          Jido.Exec.run(tool_module, tool_args, context, timeout: 60_000)
+        rescue
+          e -> {:error, Exception.message(e)}
+        end
+      end)
 
     format_tool_result(result)
   end

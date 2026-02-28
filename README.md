@@ -10,21 +10,9 @@ Loom reads your codebase, proposes edits, runs commands, and commits changes —
 
 Built on the [Jido](https://github.com/agentjido/jido) agent ecosystem and powered by [req_llm](https://github.com/agentjido/req_llm) for multi-provider LLM access, Loom treats AI coding assistance as a proper OTP application — supervised, fault-tolerant, and concurrent by design.
 
-```
-You: Fix the failing test in lib/auth/token.ex
-
-Loom: I'll investigate the test failure.
-
-  [file_read] test/auth/token_test.exs
-  [file_read] lib/auth/token.ex
-  [shell] mix test test/auth/token_test.exs
-  [file_edit] lib/auth/token.ex  (3 lines changed)
-  [shell] mix test test/auth/token_test.exs  ✓ 12 tests, 0 failures
-  [git] committed: "Fix token expiry comparison using DateTime.compare/2"
-
-The test was failing because `>` doesn't work on DateTime structs.
-I replaced it with `DateTime.compare/2` — all 12 tests pass now.
-```
+<p align="center">
+  <img src="assets/loom-example.png" alt="Loom example session — fixing a failing test" width="700">
+</p>
 
 ---
 
@@ -374,9 +362,67 @@ Loom wouldn't exist without these projects:
 
 ---
 
+## Building a Standalone Binary
+
+Loom can be packaged as a single self-contained binary using [Burrito](https://github.com/burrito-elixir/burrito). The binary bundles the BEAM runtime, so users don't need Elixir or Erlang installed.
+
+### Quick Build (current platform)
+
+```bash
+# Build a release binary for your current OS/arch
+MIX_ENV=prod mix release loom
+
+# The binary will be in burrito_out/
+./burrito_out/loom_macos_aarch64
+```
+
+### Cross-Platform Builds
+
+```bash
+# Build for all configured targets
+MIX_ENV=prod mix release loom
+
+# Targets (configured in mix.exs):
+#   macos_aarch64  — Apple Silicon Mac
+#   macos_x86_64   — Intel Mac
+#   linux_x86_64   — Linux x86_64
+#   linux_aarch64  — Linux ARM64
+```
+
+### Standard Mix Release (without Burrito)
+
+If you prefer a standard OTP release without Burrito wrapping:
+
+```bash
+# Comment out the Burrito steps in mix.exs releases config, then:
+MIX_ENV=prod mix release loom
+
+# Run the release
+_build/prod/rel/loom/bin/loom start
+
+# Or run migrations manually
+_build/prod/rel/loom/bin/loom eval "Loom.Release.migrate()"
+```
+
+### Release Behavior
+
+- Database is stored at `~/.loom/loom.db` (override with `LOOM_DB_PATH`)
+- Migrations run automatically on startup
+- Web UI starts on port 4200 (override with `PORT`)
+- A deterministic secret key base is derived from your home directory (override with `SECRET_KEY_BASE`)
+
+### Cost Dashboard
+
+Visit `/dashboard` in the web UI to see real-time telemetry:
+- Per-session token usage and cost tracking
+- Model usage breakdown
+- Tool execution frequency and performance
+
+---
+
 ## Contributing
 
-Loom is in active development (Phase 3 complete). Contributions welcome.
+Loom is in active development (Phase 4). Contributions welcome.
 
 ```bash
 # Run tests

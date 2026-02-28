@@ -12,7 +12,8 @@ defmodule Loom.Tools.Registry do
     Loom.Tools.Git,
     Loom.Tools.DecisionLog,
     Loom.Tools.DecisionQuery,
-    Loom.Tools.SubAgent
+    Loom.Tools.SubAgent,
+    Loom.Tools.LspDiagnostics
   ]
 
   @doc "Returns all registered tool modules."

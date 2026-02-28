@@ -48,9 +48,24 @@ defmodule Loom.Session.Persistence do
 
   @spec save_message(map()) :: {:ok, Message.t()} | {:error, Ecto.Changeset.t()}
   def save_message(attrs) do
-    %Message{}
-    |> Message.changeset(attrs)
-    |> Repo.insert()
+    result =
+      %Message{}
+      |> Message.changeset(attrs)
+      |> Repo.insert()
+
+    case result do
+      {:ok, msg} ->
+        Loom.Telemetry.emit_session_message(%{
+          session_id: msg.session_id,
+          role: msg.role,
+          token_count: msg.token_count
+        })
+
+        {:ok, msg}
+
+      error ->
+        error
+    end
   end
 
   @spec load_messages(String.t()) :: [Message.t()]

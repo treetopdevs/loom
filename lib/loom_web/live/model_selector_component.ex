@@ -3,6 +3,7 @@ defmodule LoomWeb.ModelSelectorComponent do
 
   @models [
     {"Anthropic", [
+      {"claude-opus-4-6", "anthropic:claude-opus-4-6"},
       {"claude-sonnet-4-6", "anthropic:claude-sonnet-4-6"},
       {"claude-haiku-4-5", "anthropic:claude-haiku-4-5"}
     ]},

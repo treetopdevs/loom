@@ -15,6 +15,7 @@ defmodule LoomWeb.Router do
 
     live "/", WorkspaceLive, :index
     live "/sessions/:session_id", WorkspaceLive, :show
+    live "/dashboard", CostDashboardLive, :index
   end
 
   if Mix.env() in [:dev, :test] do
