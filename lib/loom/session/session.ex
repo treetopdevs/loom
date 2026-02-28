@@ -17,7 +17,8 @@ defmodule Loom.Session do
     :status,
     messages: [],
     tools: [],
-    auto_approve: false
+    auto_approve: false,
+    pending_permission: nil
   ]
 
   # --- Public API ---
@@ -57,6 +58,28 @@ defmodule Loom.Session do
   def get_history(session_id) when is_binary(session_id) do
     case Loom.Session.Manager.find_session(session_id) do
       {:ok, pid} -> get_history(pid)
+      :error -> {:error, :not_found}
+    end
+  end
+
+  @doc "Update the model for a running session."
+  @spec update_model(pid() | String.t(), String.t()) :: :ok | {:error, term()}
+  def update_model(pid, model) when is_pid(pid) do
+    GenServer.call(pid, {:update_model, model})
+  end
+
+  def update_model(session_id, model) when is_binary(session_id) do
+    case Loom.Session.Manager.find_session(session_id) do
+      {:ok, pid} -> update_model(pid, model)
+      :error -> {:error, :not_found}
+    end
+  end
+
+  @doc "Respond to a pending permission request from the LiveView."
+  @spec respond_to_permission(String.t(), String.t(), map()) :: :ok | {:error, term()}
+  def respond_to_permission(session_id, action, meta \\ %{}) do
+    case Loom.Session.Manager.find_session(session_id) do
+      {:ok, pid} -> GenServer.cast(pid, {:permission_response, action, meta})
       :error -> {:error, :not_found}
     end
   end
@@ -107,7 +130,7 @@ defmodule Loom.Session do
   end
 
   @impl true
-  def handle_call({:send_message, text}, _from, state) do
+  def handle_call({:send_message, text}, from, state) do
     state = update_status(state, :thinking)
 
     # 1. Save user message to DB
@@ -131,6 +154,11 @@ defmodule Loom.Session do
       {:error, reason, state} ->
         state = update_status(state, :idle)
         {:reply, {:error, reason}, state}
+
+      {:pending_permission, state} ->
+        # Save the reply ref — we'll GenServer.reply when permission is resolved
+        pending = Map.put(state.pending_permission, :from, from)
+        {:noreply, %{state | pending_permission: pending}}
     end
   end
 
@@ -140,8 +168,75 @@ defmodule Loom.Session do
   end
 
   @impl true
+  def handle_call({:update_model, model}, _from, state) do
+    Persistence.update_session(state.db_session, %{model: model})
+    {:reply, :ok, %{state | model: model}}
+  end
+
+  @impl true
   def handle_call(:get_status, _from, state) do
     {:reply, {:ok, state.status}, state}
+  end
+
+  @impl true
+  def handle_cast({:permission_response, action, _meta}, state) do
+    pending = state.pending_permission
+
+    state =
+      case action do
+        "allow_once" ->
+          result_text = run_and_format_tool(pending.tool_module, pending.tool_args, pending.context)
+          record_tool_result(state, pending.tool_name, pending.tool_call_id, result_text)
+
+        "allow_always" ->
+          Loom.Permissions.Manager.grant(pending.tool_name, "*", state.id)
+          result_text = run_and_format_tool(pending.tool_module, pending.tool_args, pending.context)
+          record_tool_result(state, pending.tool_name, pending.tool_call_id, result_text)
+
+        "deny" ->
+          result_text = "Error: Permission denied by user for #{pending.tool_name} on #{pending.tool_path}"
+          record_tool_result(state, pending.tool_name, pending.tool_call_id, result_text)
+      end
+
+    state = %{state | pending_permission: nil}
+    resume_agent_loop(state, pending)
+  end
+
+  defp resume_agent_loop(state, pending) do
+    # Process remaining tool calls from the batch
+    case execute_tool_calls(pending.remaining_tool_calls, state) do
+      {:ok, state} ->
+        update_usage(state.id, pending.response)
+
+        case agent_loop(state, pending.iteration + 1) do
+          {:ok, response_text, state} ->
+            state = update_status(state, :idle)
+            GenServer.reply(pending.from, {:ok, response_text})
+            {:noreply, state}
+
+          {:error, reason, state} ->
+            state = update_status(state, :idle)
+            GenServer.reply(pending.from, {:error, reason})
+            {:noreply, state}
+
+          {:pending_permission, state} ->
+            # Another permission request in the same flow
+            new_pending = Map.put(state.pending_permission, :from, pending.from)
+            {:noreply, %{state | pending_permission: new_pending}}
+        end
+
+      {:pending, remaining, state} ->
+        # Another tool in the same batch needs permission
+        new_pending =
+          Map.merge(state.pending_permission, %{
+            remaining_tool_calls: remaining,
+            response: pending.response,
+            iteration: pending.iteration,
+            from: pending.from
+          })
+
+        {:noreply, %{state | pending_permission: new_pending}}
+    end
   end
 
   # --- Private ---
@@ -207,17 +302,22 @@ defmodule Loom.Session do
     state = %{state | messages: state.messages ++ [assistant_msg]}
     broadcast(state.id, {:new_message, state.id, assistant_msg})
 
-    # Execute each tool call
-    state =
-      Enum.reduce(classified.tool_calls, state, fn tool_call, acc_state ->
-        execute_tool_call(tool_call, acc_state)
-      end)
+    # Execute tool calls with early halt on pending permission
+    case execute_tool_calls(classified.tool_calls, state) do
+      {:ok, state} ->
+        update_usage(state.id, response)
+        agent_loop(state, iteration + 1)
 
-    # Update token counts
-    update_usage(state.id, response)
+      {:pending, remaining_tool_calls, state} ->
+        pending =
+          Map.merge(state.pending_permission, %{
+            remaining_tool_calls: remaining_tool_calls,
+            response: response,
+            iteration: iteration
+          })
 
-    # Continue the loop
-    agent_loop(state, iteration + 1)
+        {:pending_permission, %{state | pending_permission: pending}}
+    end
   end
 
   defp handle_classified(%{type: :final_answer} = classified, response, state, _iteration) do
@@ -241,6 +341,15 @@ defmodule Loom.Session do
     {:ok, response_text, state}
   end
 
+  defp execute_tool_calls([], state), do: {:ok, state}
+
+  defp execute_tool_calls([tool_call | rest], state) do
+    case execute_tool_call(tool_call, state) do
+      {:ok, state} -> execute_tool_calls(rest, state)
+      {:pending, state} -> {:pending, rest, state}
+    end
+  end
+
   defp execute_tool_call(tool_call, state) do
     tool_name = tool_call[:name]
     tool_args = tool_call[:arguments] || %{}
@@ -251,36 +360,56 @@ defmodule Loom.Session do
 
     broadcast(state.id, {:tool_executing, state.id, tool_name})
 
+    case Jido.AI.ToolAdapter.lookup_action(tool_name, state.tools) do
+      {:error, :not_found} ->
+        result_text = "Error: Tool '#{tool_name}' not found"
+        {:ok, record_tool_result(state, tool_name, tool_call_id, result_text)}
+
+      {:ok, tool_module} ->
+        case check_permission(tool_name, tool_path, state) do
+          :allowed ->
+            result_text = run_and_format_tool(tool_module, tool_args, context)
+            {:ok, record_tool_result(state, tool_name, tool_call_id, result_text)}
+
+          :pending ->
+            pending = %{
+              tool_call: tool_call,
+              tool_module: tool_module,
+              tool_name: tool_name,
+              tool_path: tool_path,
+              tool_call_id: tool_call_id,
+              tool_args: tool_args,
+              context: context
+            }
+
+            {:pending, %{state | pending_permission: pending}}
+        end
+    end
+  end
+
+  defp run_and_format_tool(tool_module, tool_args, context) do
     result =
-      case Jido.AI.ToolAdapter.lookup_action(tool_name, state.tools) do
-        {:error, :not_found} ->
-          {:error, "Tool '#{tool_name}' not found"}
-
-        {:ok, tool_module} ->
-          case check_permission(tool_name, tool_path, state) do
-            :denied ->
-              {:error, "Permission denied for #{tool_name} on #{tool_path}"}
-
-            :allowed ->
-              try do
-                Jido.Exec.run(tool_module, tool_args, context, timeout: 60_000)
-              rescue
-                e -> {:error, Exception.message(e)}
-              end
-          end
+      try do
+        Jido.Exec.run(tool_module, tool_args, context, timeout: 60_000)
+      rescue
+        e -> {:error, Exception.message(e)}
       end
 
-    result_text =
-      case result do
-        {:ok, %{result: text}} -> text
-        {:ok, text} when is_binary(text) -> text
-        {:ok, map} when is_map(map) -> inspect(map)
-        {:error, %{message: msg}} -> "Error: #{msg}"
-        {:error, text} when is_binary(text) -> "Error: #{text}"
-        {:error, reason} -> "Error: #{inspect(reason)}"
-      end
+    format_tool_result(result)
+  end
 
-    # Save tool result message
+  defp format_tool_result(result) do
+    case result do
+      {:ok, %{result: text}} -> text
+      {:ok, text} when is_binary(text) -> text
+      {:ok, map} when is_map(map) -> inspect(map)
+      {:error, %{message: msg}} -> "Error: #{msg}"
+      {:error, text} when is_binary(text) -> "Error: #{text}"
+      {:error, reason} -> "Error: #{inspect(reason)}"
+    end
+  end
+
+  defp record_tool_result(state, tool_name, tool_call_id, result_text) do
     {:ok, _} =
       Persistence.save_message(%{
         session_id: state.id,
@@ -306,19 +435,9 @@ defmodule Loom.Session do
           Loom.Permissions.Manager.grant(tool_name, tool_path, state.id)
           :allowed
         else
-          details = "#{tool_name} on #{tool_path}"
-
-          case Loom.Permissions.Prompt.ask(tool_name, details) do
-            :yes ->
-              :allowed
-
-            :always ->
-              Loom.Permissions.Manager.grant(tool_name, "*", state.id)
-              :allowed
-
-            :no ->
-              :denied
-          end
+          # Broadcast permission request to LiveView instead of blocking on terminal I/O
+          broadcast(state.id, {:permission_request, state.id, tool_name, tool_path})
+          :pending
         end
     end
   end

@@ -55,6 +55,7 @@ defmodule Loom.Session.ContextWindow do
   def inject_decision_context(system_parts, nil), do: system_parts
 
   def inject_decision_context(system_parts, session_id) do
+    # build/2 has a default arg, so Elixir generates build/1 as well — checking arity 1 is correct
     if Code.ensure_loaded?(Loom.Decisions.ContextBuilder) &&
          function_exported?(Loom.Decisions.ContextBuilder, :build, 1) do
       case Loom.Decisions.ContextBuilder.build(session_id) do
