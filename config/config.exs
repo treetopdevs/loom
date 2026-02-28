@@ -55,4 +55,6 @@ config :logger, :console,
 # Use Jason for JSON parsing
 config :phoenix, :json_library, Jason
 
+config :esbuild, :version, "0.25.0"
+
 import_config "#{config_env()}.exs"

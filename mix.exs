@@ -11,9 +11,9 @@ defmodule Loom.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
-      escript: escript(),
       releases: releases(),
-      elixirc_paths: elixirc_paths(Mix.env())
+      elixirc_paths: elixirc_paths(Mix.env()),
+      listeners: [Phoenix.CodeReloader]
     ]
   end
 
@@ -26,10 +26,6 @@ defmodule Loom.MixProject do
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
-
-  defp escript do
-    [main_module: LoomCli.Main]
-  end
 
   defp releases do
     [
@@ -65,6 +61,7 @@ defmodule Loom.MixProject do
 
       # Storage
       {:ecto_sqlite3, "~> 0.17"},
+      {:exqlite, "~> 0.17"},
       {:ecto_sql, "~> 3.12"},
 
       # Git
