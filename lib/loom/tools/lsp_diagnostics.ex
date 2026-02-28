@@ -32,22 +32,22 @@ defmodule Loom.Tools.LspDiagnostics do
 
     full_path = safe_path!(file_path, project_path)
 
-    unless File.exists?(full_path) do
+    if not File.exists?(full_path) do
       {:error, "File not found: #{full_path}"}
-    end
-
-    servers =
-      if server_name do
-        [server_name]
-      else
-        LSPSupervisor.list_clients()
-      end
-
-    if servers == [] do
-      {:ok, %{result: "No LSP servers connected. Configure LSP servers in .loom.toml under [lsp]."}}
     else
-      diagnostics = collect_diagnostics(servers, full_path, severity_filter)
-      {:ok, %{result: format_diagnostics(file_path, diagnostics)}}
+      servers =
+        if server_name do
+          [server_name]
+        else
+          LSPSupervisor.list_clients()
+        end
+
+      if servers == [] do
+        {:ok, %{result: "No LSP servers connected. Configure LSP servers in .loom.toml under [lsp]."}}
+      else
+        diagnostics = collect_diagnostics(servers, full_path, severity_filter)
+        {:ok, %{result: format_diagnostics(file_path, diagnostics)}}
+      end
     end
   rescue
     e in ArgumentError -> {:error, e.message}

@@ -17,6 +17,7 @@ defmodule Loom.Session.Architect do
   """
 
   alias Loom.Session.{ContextWindow, Persistence}
+  alias Loom.Telemetry, as: LoomTelemetry
 
   require Logger
 
@@ -135,7 +136,15 @@ defmodule Loom.Session.Architect do
         }
       ]
 
-    case call_llm(provider, model_id, req_messages, opts) do
+    telemetry_meta = %{
+      session_id: state.id,
+      model: architect_model,
+      architect_phase: :plan
+    }
+
+    case LoomTelemetry.span_llm_request(telemetry_meta, fn ->
+           call_llm(provider, model_id, req_messages, opts)
+         end) do
       {:ok, response} ->
         text = extract_text(response)
 
@@ -252,7 +261,16 @@ defmodule Loom.Session.Architect do
   end
 
   defp editor_loop(provider, model_id, messages, state, opts, iteration) do
-    case call_llm(provider, model_id, messages, opts) do
+    telemetry_meta = %{
+      session_id: state.id,
+      model: "#{provider}:#{model_id}",
+      architect_phase: :edit,
+      iteration: iteration
+    }
+
+    case LoomTelemetry.span_llm_request(telemetry_meta, fn ->
+           call_llm(provider, model_id, messages, opts)
+         end) do
       {:ok, response} ->
         classified = ReqLLM.Response.classify(response)
         handle_editor_response(classified, response, provider, model_id, messages, state, opts, iteration)
@@ -287,7 +305,14 @@ defmodule Loom.Session.Architect do
         result_text =
           case Jido.AI.ToolAdapter.lookup_action(tool_name, st.tools) do
             {:ok, tool_module} ->
-              run_and_format_tool(tool_module, tool_args, context)
+              tool_meta = %{
+                tool_name: tool_name,
+                session_id: st.id
+              }
+
+              LoomTelemetry.span_tool_execute(tool_meta, fn ->
+                run_and_format_tool(tool_module, tool_args, context)
+              end)
 
             {:error, :not_found} ->
               "Error: Tool '#{tool_name}' not found"

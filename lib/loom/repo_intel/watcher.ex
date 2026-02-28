@@ -40,6 +40,8 @@ defmodule Loom.RepoIntel.Watcher do
 
   @impl true
   def init(opts) do
+    Phoenix.PubSub.subscribe(Loom.PubSub, "loom:system")
+
     state = %{
       project_path: nil,
       watcher_pid: nil,
@@ -118,6 +120,23 @@ defmodule Loom.RepoIntel.Watcher do
     end
 
     {:noreply, %{state | pending_changes: MapSet.new(), debounce_ref: nil}}
+  end
+
+  @impl true
+  def handle_info({:config_loaded, config}, state) do
+    watch_enabled = get_in(config, [:repo, :watch_enabled])
+
+    if watch_enabled != false do
+      project_path = config[:project_path] || state.project_path
+
+      if project_path && state.watcher_pid == nil do
+        {:noreply, do_watch(state, project_path)}
+      else
+        {:noreply, state}
+      end
+    else
+      {:noreply, state}
+    end
   end
 
   @impl true
