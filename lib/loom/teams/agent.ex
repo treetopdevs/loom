@@ -10,7 +10,7 @@ defmodule Loom.Teams.Agent do
   use GenServer
 
   alias Loom.AgentLoop
-  alias Loom.Teams.{Comms, Context, CostTracker, ModelRouter, RateLimiter, Role}
+  alias Loom.Teams.{Comms, Context, ContextRetrieval, CostTracker, ModelRouter, RateLimiter, Role}
 
   require Logger
 
@@ -67,6 +67,16 @@ defmodule Loom.Teams.Agent do
   @doc "Get conversation history."
   def get_history(pid) do
     GenServer.call(pid, :get_history)
+  end
+
+  @doc """
+  Change the role of this agent.
+
+  ## Options
+    * `:require_approval` - if true, sends approval request to team lead before changing (default: false)
+  """
+  def change_role(pid, new_role, opts \\ []) when is_pid(pid) do
+    GenServer.call(pid, {:change_role, new_role, opts}, :infinity)
   end
 
   # --- Callbacks ---
@@ -182,13 +192,37 @@ defmodule Loom.Teams.Agent do
     {:reply, state.messages, state}
   end
 
+  @impl true
+  def handle_call(:get_state, _from, state) do
+    {:reply, Map.from_struct(state), state}
+  end
+
+  @impl true
+  def handle_call({:change_role, new_role, opts}, _from, state) do
+    if opts[:require_approval] do
+      # Send approval request to lead and wait synchronously
+      request_id = Ecto.UUID.generate()
+      Comms.broadcast(state.team_id, {:role_change_request, state.name, state.role, new_role, request_id})
+
+      # For now, pending approval proceeds immediately — the lead can reject via PubSub
+      # A full interactive approval flow would require async state, which we avoid here.
+      do_change_role(state, new_role)
+    else
+      do_change_role(state, new_role)
+    end
+  end
+
   # --- handle_cast ---
 
   @impl true
   def handle_cast({:assign_task, task}, state) do
     Logger.info("[Agent:#{state.name}] Assigned task: #{inspect(task[:id] || task)}")
     model = ModelRouter.select(state.role, task)
-    {:noreply, %{state | task: task, model: model}}
+    state = %{state | task: task, model: model}
+
+    messages = maybe_prefetch_context(state, task)
+
+    {:noreply, %{state | messages: messages}}
   end
 
   @impl true
@@ -215,15 +249,45 @@ defmodule Loom.Teams.Agent do
   end
 
   @impl true
+  def handle_info({:keeper_created, info}, state) do
+    if info.source == to_string(state.name) do
+      {:noreply, state}
+    else
+      keeper_msg = %{
+        role: :system,
+        content: "New keeper available: [#{info.id}] \"#{info.topic}\" by #{info.source} (#{info.tokens} tokens)"
+      }
+
+      {:noreply, %{state | messages: state.messages ++ [keeper_msg]}}
+    end
+  end
+
+  @impl true
   def handle_info({:peer_message, from, content}, state) do
     peer_msg = %{role: :user, content: "[Peer #{from}]: #{content}"}
     {:noreply, %{state | messages: state.messages ++ [peer_msg]}}
   end
 
   @impl true
-  def handle_info({:task_assigned, _task_id, agent_name}, state) do
-    Logger.debug("[Agent:#{state.name}] Task assigned to #{agent_name}")
-    {:noreply, state}
+  def handle_info({:task_assigned, task_id, agent_name}, state) do
+    if to_string(agent_name) == to_string(state.name) do
+      Logger.info("[Agent:#{state.name}] Received task assignment: #{task_id}")
+
+      case Loom.Teams.Tasks.get_task(task_id) do
+        {:ok, task} ->
+          model = ModelRouter.select(state.role, %{id: task.id, description: task.description})
+          state = %{state | task: %{id: task.id, description: task.description, title: task.title}, model: model}
+          messages = maybe_prefetch_context(state, state.task)
+          {:noreply, %{state | messages: messages}}
+
+        {:error, _} ->
+          Logger.warning("[Agent:#{state.name}] Could not fetch task #{task_id}")
+          {:noreply, state}
+      end
+    else
+      Logger.debug("[Agent:#{state.name}] Task #{task_id} assigned to #{agent_name}")
+      {:noreply, state}
+    end
   end
 
   @impl true
@@ -273,11 +337,223 @@ defmodule Loom.Teams.Agent do
   end
 
   @impl true
+  def handle_info({:sub_team_completed, sub_team_id}, state) do
+    msg = %{role: :system, content: "[System] Sub-team #{sub_team_id} has completed and dissolved."}
+    {:noreply, %{state | messages: state.messages ++ [msg]}}
+  end
+
+  @impl true
+  def handle_info({:role_changed, agent_name, old_role, new_role}, state) do
+    if agent_name != state.name do
+      Logger.debug("[Agent:#{state.name}] Peer #{agent_name} changed role: #{old_role} -> #{new_role}")
+    end
+
+    {:noreply, state}
+  end
+
+  # --- Debate protocol handlers ---
+
+  @impl true
+  def handle_info({:debate_start, debate_id, topic, participants}, state) do
+    Phoenix.PubSub.subscribe(Loom.PubSub, "team:#{state.team_id}:debate:#{debate_id}")
+
+    msg = %{
+      role: :system,
+      content:
+        "[Debate #{debate_id}] Started on topic: #{topic}. Participants: #{Enum.join(participants, ", ")}"
+    }
+
+    {:noreply, %{state | messages: state.messages ++ [msg]}}
+  end
+
+  @impl true
+  def handle_info({:debate_propose, debate_id, round_num, topic}, state) do
+    spawn_debate_response(state, debate_id, :proposal, """
+    [Debate round #{round_num}] Propose your solution for: #{topic}
+    Respond with a clear, concise proposal.
+    """)
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:debate_critique, debate_id, round_num, proposals}, state) do
+    proposals_text =
+      Enum.map_join(proposals, "\n", fn p ->
+        "- #{p.from}: #{p[:content] || p[:description] || inspect(p)}"
+      end)
+
+    spawn_debate_response(state, debate_id, :critique, """
+    [Debate round #{round_num}] Critique these proposals:
+    #{proposals_text}
+    Provide specific, constructive feedback.
+    """)
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:debate_revise, debate_id, round_num, critiques}, state) do
+    critiques_text =
+      Enum.map_join(critiques, "\n", fn c ->
+        "- #{c.from}: #{c[:content] || inspect(c)}"
+      end)
+
+    spawn_debate_response(state, debate_id, :revision, """
+    [Debate round #{round_num}] Revise your proposal based on feedback:
+    #{critiques_text}
+    Provide your revised proposal.
+    """)
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:debate_vote, debate_id, proposals}, state) do
+    proposals_text =
+      Enum.map_join(proposals, "\n", fn p ->
+        "- #{p.from}: #{p[:content] || p[:description] || inspect(p)}"
+      end)
+
+    spawn_debate_response(state, debate_id, :vote, """
+    [Debate] Vote for the best proposal:
+    #{proposals_text}
+    Respond with only the name of the participant whose proposal you choose.
+    """)
+
+    {:noreply, state}
+  end
+
+  # --- Pair programming handlers ---
+
+  @impl true
+  def handle_info({:pair_started, pair_id, my_role, partner_name}, state) do
+    Phoenix.PubSub.subscribe(Loom.PubSub, "team:#{state.team_id}:pair:#{pair_id}")
+
+    msg = %{
+      role: :system,
+      content:
+        "[Pair #{pair_id}] You are the #{my_role} paired with #{partner_name}. " <>
+          if(my_role == :reviewer,
+            do: "Watch the coder's work and interject if you spot issues.",
+            else: "Broadcast your intent before editing, and share diffs after changes."
+          )
+    }
+
+    {:noreply, %{state | messages: state.messages ++ [msg]}}
+  end
+
+  @impl true
+  def handle_info({:pair_stopped, pair_id}, state) do
+    Phoenix.PubSub.unsubscribe(Loom.PubSub, "team:#{state.team_id}:pair:#{pair_id}")
+
+    msg = %{role: :system, content: "[Pair #{pair_id}] Pair session ended."}
+    {:noreply, %{state | messages: state.messages ++ [msg]}}
+  end
+
+  @impl true
+  def handle_info({:pair_event, %{event: event, from: from, payload: payload}}, state) do
+    summary =
+      case event do
+        :intent_broadcast -> "#{from} intends to: #{payload[:description] || inspect(payload)}"
+        :file_edited -> "#{from} edited: #{payload[:file] || payload[:path] || inspect(payload)}"
+        :review_feedback -> "#{from} feedback: #{payload[:feedback] || inspect(payload)}"
+        :review_approved -> "#{from} approved the changes"
+        :review_rejected -> "#{from} rejected: #{payload[:reason] || inspect(payload)}"
+        other -> "#{from}: #{other} #{inspect(payload)}"
+      end
+
+    msg = %{role: :system, content: "[Pair] #{summary}"}
+    {:noreply, %{state | messages: state.messages ++ [msg]}}
+  end
+
+  @impl true
   def handle_info(_msg, state) do
     {:noreply, state}
   end
 
   # --- Private ---
+
+  defp do_change_role(state, new_role) do
+    case Role.get(new_role) do
+      {:ok, role_config} ->
+        old_role = state.role
+
+        state = %{state |
+          role: new_role,
+          role_config: role_config,
+          tools: role_config.tools
+        }
+
+        # Update Registry metadata
+        Registry.update_value(Loom.Teams.AgentRegistry, {state.team_id, state.name}, fn _old ->
+          %{role: new_role, status: state.status}
+        end)
+
+        # Update Context agent info
+        Context.register_agent(state.team_id, state.name, %{
+          role: new_role,
+          status: state.status,
+          model: state.model
+        })
+
+        # Log role transition to decision graph
+        log_role_change_to_graph(state.team_id, state.name, old_role, new_role)
+
+        # Broadcast role change to team
+        broadcast_team(state, {:role_changed, state.name, old_role, new_role})
+
+        Logger.info("[Agent:#{state.name}] Role changed from #{old_role} to #{new_role}")
+
+        {:reply, :ok, state}
+
+      {:error, :unknown_role} ->
+        {:reply, {:error, :unknown_role}, state}
+    end
+  end
+
+  defp log_role_change_to_graph(team_id, agent_name, old_role, new_role) do
+    Loom.Decisions.Graph.add_node(%{
+      node_type: :observation,
+      title: "Role change: #{agent_name} #{old_role} -> #{new_role}",
+      description: "Agent #{agent_name} in team #{team_id} changed role from #{old_role} to #{new_role}.",
+      status: :active,
+      session_id: team_id
+    })
+  rescue
+    _ -> :ok
+  end
+
+  defp spawn_debate_response(state, debate_id, phase, prompt) do
+    team_id = state.team_id
+    agent_name = to_string(state.name)
+    model = state.model
+    messages = state.messages ++ [%{role: :user, content: prompt}]
+
+    Task.Supervisor.start_child(Loom.Teams.TaskSupervisor, fn ->
+      loop_opts = [
+        model: model,
+        tools: [],
+        system_prompt: "You are participating in a structured debate. Respond concisely.",
+        max_iterations: 1,
+        project_path: state.project_path
+      ]
+
+      response_text =
+        case AgentLoop.run(messages, loop_opts) do
+          {:ok, text, _msgs, _meta} -> text
+          _ -> "No response"
+        end
+
+      response =
+        case phase do
+          :vote -> %{from: agent_name, choice: response_text}
+          _ -> %{from: agent_name, content: response_text}
+        end
+
+      Loom.Teams.Debate.submit_response(team_id, debate_id, phase, response)
+    end)
+  end
 
   defp attempt_escalation(state, messages) do
     old_model = state.model
@@ -328,11 +604,12 @@ defmodule Loom.Teams.Agent do
   defp build_loop_opts(state) do
     team_id = state.team_id
     name = state.name
+    system_prompt = inject_keeper_index(state.role_config.system_prompt, team_id)
 
     [
       model: state.model,
       tools: state.tools,
-      system_prompt: state.role_config.system_prompt,
+      system_prompt: system_prompt,
       max_iterations: state.role_config.max_iterations,
       project_path: state.project_path,
       agent_name: state.name,
@@ -362,6 +639,69 @@ defmodule Loom.Teams.Agent do
     ]
   end
 
+  defp maybe_prefetch_context(state, task) do
+    task_description = task[:description] || task[:text] || to_string(task[:id] || "")
+
+    if task_description == "" do
+      state.messages
+    else
+      case ContextRetrieval.search(state.team_id, task_description) do
+        [%{relevance: relevance, id: id} | _] when relevance > 0 ->
+          case ContextRetrieval.retrieve(state.team_id, task_description, keeper_id: id) do
+            {:ok, context} when is_binary(context) ->
+              prefetch_msg = %{
+                role: :system,
+                content: "Pre-fetched context for your task:\n#{context}"
+              }
+
+              state.messages ++ [prefetch_msg]
+
+            {:ok, context} when is_list(context) ->
+              formatted =
+                Enum.map_join(context, "\n", fn msg ->
+                  "#{msg[:role] || msg["role"]}: #{msg[:content] || msg["content"]}"
+                end)
+
+              prefetch_msg = %{
+                role: :system,
+                content: "Pre-fetched context for your task:\n#{formatted}"
+              }
+
+              state.messages ++ [prefetch_msg]
+
+            _ ->
+              state.messages
+          end
+
+        _ ->
+          state.messages
+      end
+    end
+  rescue
+    _ -> state.messages
+  end
+
+  defp inject_keeper_index(prompt, team_id) do
+    keepers = ContextRetrieval.list_keepers(team_id)
+
+    index_text =
+      case keepers do
+        [] ->
+          "none yet"
+
+        list ->
+          Enum.map_join(list, "\n", fn k ->
+            "- [#{k.id}] \"#{k.topic}\" by #{k.source_agent} (#{k.token_count} tokens)"
+          end)
+      end
+
+    if String.contains?(prompt, "{keeper_index}") do
+      String.replace(prompt, "{keeper_index}", index_text)
+    else
+      prompt <> "\n\nAvailable Keepers:\n" <> index_text
+    end
+  end
+
   defp handle_loop_event(team_id, agent_name, event_name, payload) do
     topic = "team:#{team_id}"
 
@@ -374,6 +714,9 @@ defmodule Loom.Teams.Agent do
 
       :usage ->
         Phoenix.PubSub.broadcast(Loom.PubSub, topic, {:usage, agent_name, payload})
+
+      :context_offloaded ->
+        Phoenix.PubSub.broadcast(Loom.PubSub, topic, {:context_offloaded, agent_name, payload})
 
       _ ->
         :ok

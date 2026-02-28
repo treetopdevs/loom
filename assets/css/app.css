@@ -25,3 +25,202 @@ body {
 .phx-submit-loading .phx-submit-loading-hide {
   display: none;
 }
+
+/* ── Custom Scrollbar ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4f46e5;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #6366f1;
+}
+
+/* ── Focus Ring Override ── */
+*:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.3);
+  border-radius: inherit;
+}
+
+/* ── Tab Content Transition ── */
+.tab-content-enter {
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* ── Keyframes ── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+/* ── Header Bottom Glow ── */
+.header-glow {
+  box-shadow: 0 1px 0 0 rgba(129, 140, 248, 0.15),
+              0 4px 12px -4px rgba(129, 140, 248, 0.08);
+}
+
+/* ── Chevron Rotation ── */
+.chevron-rotate {
+  transition: transform 0.2s ease;
+}
+
+.chevron-rotate.expanded {
+  transform: rotate(90deg);
+}
+
+/* ── Status Dot Pulse ── */
+.status-dot-idle {
+  box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.4);
+  animation: dot-pulse-green 2s ease-in-out infinite;
+}
+
+@keyframes dot-pulse-green {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(74, 222, 128, 0); }
+}
+
+.status-dot-thinking {
+  animation: pulse-soft 1.5s ease-in-out infinite;
+}
+
+/* ── Mode Toggle Pill ── */
+.mode-toggle {
+  position: relative;
+}
+
+.mode-toggle .mode-slider {
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Send Button Pulse ── */
+.send-btn-ready {
+  animation: send-pulse 2.5s ease-in-out infinite;
+}
+
+@keyframes send-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.3); }
+  50% { box-shadow: 0 0 0 6px rgba(99, 102, 241, 0); }
+}
+
+/* ── Bounce Dots (Thinking) ── */
+@keyframes bounceDot {
+  0%, 80%, 100% {
+    transform: scale(0);
+    opacity: 0.3;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.3s ease-out;
+}
+
+.thinking-dot {
+  animation: bounceDot 1.4s infinite ease-in-out both;
+}
+
+.thinking-dot:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.thinking-dot:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+.thinking-dot:nth-child(3) {
+  animation-delay: 0s;
+}
+
+/* ── Tool Cards ── */
+
+.tool-card .tool-card-body {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.25s ease-out, padding 0.25s ease-out;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.tool-card.tool-expanded .tool-card-body {
+  max-height: 500px;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  transition: max-height 0.35s ease-in, padding 0.2s ease-in;
+}
+
+.tool-card .tool-card-chevron {
+  display: inline-block;
+  transition: transform 0.2s ease;
+}
+
+.tool-card.tool-expanded .tool-card-chevron {
+  transform: rotate(90deg);
+}
+
+.tool-file-paths {
+  word-break: break-all;
+}
+
+/* ── Chat Markdown Styling ── */
+
+.chat-markdown pre {
+  @apply bg-gray-950 rounded-lg border border-gray-800/60 p-3 my-2 overflow-x-auto;
+}
+
+.chat-markdown pre code {
+  @apply text-xs leading-relaxed;
+}
+
+.chat-markdown code:not(pre code) {
+  @apply bg-gray-800 rounded px-1.5 py-0.5 text-xs text-indigo-300;
+}
+
+.chat-markdown a {
+  @apply text-indigo-400 hover:text-indigo-300 underline underline-offset-2;
+  transition: color 0.15s ease;
+}
+
+.chat-markdown p {
+  @apply leading-relaxed;
+}
+
+.chat-markdown ul, .chat-markdown ol {
+  @apply ml-4 space-y-1;
+}
+
+.chat-markdown blockquote {
+  @apply border-l-2 border-indigo-500/30 pl-3 text-gray-400 italic;
+}
