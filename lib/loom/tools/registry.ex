@@ -1,7 +1,7 @@
 defmodule Loom.Tools.Registry do
   @moduledoc "Registry of all available Loom tools."
 
-  @tools [
+  @solo_tools [
     Loom.Tools.FileRead,
     Loom.Tools.FileWrite,
     Loom.Tools.FileEdit,
@@ -16,9 +16,27 @@ defmodule Loom.Tools.Registry do
     Loom.Tools.LspDiagnostics
   ]
 
-  @doc "Returns all registered tool modules."
+  @team_tools [
+    Loom.Tools.ContextRetrieve,
+    Loom.Tools.ContextOffload,
+    Loom.Tools.PeerAskQuestion,
+    Loom.Tools.PeerAnswerQuestion,
+    Loom.Tools.PeerForwardQuestion
+  ]
+
+  @tools @solo_tools ++ @team_tools
+
+  @doc "Returns solo-safe tool modules (no team context required)."
   @spec all() :: [module()]
-  def all, do: @tools
+  def all, do: @solo_tools
+
+  @doc "Returns all registered tool modules including team-only tools."
+  @spec all_with_team() :: [module()]
+  def all_with_team, do: @tools
+
+  @doc "Returns team-only tool modules."
+  @spec team_tools() :: [module()]
+  def team_tools, do: @team_tools
 
   @doc "Returns the tool definitions for all registered tools as ReqLLM.Tool structs."
   @spec definitions() :: [ReqLLM.Tool.t()]

@@ -227,6 +227,52 @@ defmodule Loom.Teams.Agent do
   end
 
   @impl true
+  def handle_info({:query, query_id, from, question, enrichments}, state) do
+    # Don't process our own broadcast questions
+    if from == to_string(state.name) do
+      {:noreply, state}
+    else
+      enrichment_text =
+        case enrichments do
+          [] -> ""
+          list -> "\n\nRelevant context:\n" <> Enum.join(list, "\n")
+        end
+
+      query_msg = %{
+        role: :user,
+        content: """
+        [Query from #{from} | ID: #{query_id}]
+        #{question}#{enrichment_text}
+
+        You can respond using peer_answer_question with query_id "#{query_id}", \
+        or forward the question to another agent if someone else is better suited to answer.\
+        """
+      }
+
+      {:noreply, %{state | messages: state.messages ++ [query_msg]}}
+    end
+  end
+
+  @impl true
+  def handle_info({:query_answer, query_id, from, answer, enrichments}, state) do
+    enrichment_text =
+      case enrichments do
+        [] -> ""
+        list -> "\n\nEnrichments gathered during routing:\n" <> Enum.join(list, "\n")
+      end
+
+    answer_msg = %{
+      role: :user,
+      content: """
+      [Answer from #{from} | Query: #{query_id}]
+      #{answer}#{enrichment_text}\
+      """
+    }
+
+    {:noreply, %{state | messages: state.messages ++ [answer_msg]}}
+  end
+
+  @impl true
   def handle_info(_msg, state) do
     {:noreply, state}
   end
@@ -296,6 +342,22 @@ defmodule Loom.Teams.Agent do
       end,
       on_event: fn event_name, payload ->
         handle_loop_event(team_id, name, event_name, payload)
+      end,
+      on_tool_execute: fn tool_module, tool_args, context ->
+        # Inject agent messages into context for ContextOffload to avoid deadlock.
+        # The tool runs inside the agent's handle_call (via AgentLoop → Jido.Exec Task),
+        # so calling Agent.get_history(pid) would deadlock on GenServer.call to self.
+        # Note: state.messages is captured at loop start. Messages added mid-loop
+        # (from tool results) won't be in the offloaded set — this is acceptable
+        # since the agent loop runs synchronously within a single handle_call.
+        context =
+          if tool_module == Loom.Tools.ContextOffload do
+            Map.put(context, :agent_messages, state.messages)
+          else
+            context
+          end
+
+        AgentLoop.default_run_tool(tool_module, tool_args, context)
       end
     ]
   end

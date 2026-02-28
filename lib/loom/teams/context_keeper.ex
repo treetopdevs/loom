@@ -18,6 +18,7 @@ defmodule Loom.Teams.ContextKeeper do
 
   @chars_per_token 4
   @keyword_match_budget 10_000
+  @persist_debounce_ms 50
 
   defstruct [
     :id,
@@ -27,7 +28,10 @@ defmodule Loom.Teams.ContextKeeper do
     :created_at,
     messages: [],
     token_count: 0,
-    metadata: %{}
+    metadata: %{},
+    dirty: false,
+    persist_ref: nil,
+    persist_debounce_ms: @persist_debounce_ms
   ]
 
   # --- Public API ---
@@ -75,6 +79,11 @@ defmodule Loom.Teams.ContextKeeper do
     GenServer.call(pid, :get_state)
   end
 
+  @doc false
+  def flush_persist(pid) do
+    GenServer.call(pid, :flush_persist)
+  end
+
   # --- Callbacks ---
 
   @impl true
@@ -85,6 +94,7 @@ defmodule Loom.Teams.ContextKeeper do
     source_agent = Keyword.get(opts, :source_agent, "unknown")
     messages = Keyword.get(opts, :messages, [])
     metadata = Keyword.get(opts, :metadata, %{})
+    persist_debounce_ms = Keyword.get(opts, :persist_debounce_ms, @persist_debounce_ms)
 
     token_count = estimate_tokens(messages)
 
@@ -96,7 +106,8 @@ defmodule Loom.Teams.ContextKeeper do
       messages: messages,
       token_count: token_count,
       metadata: metadata,
-      created_at: DateTime.utc_now()
+      created_at: DateTime.utc_now(),
+      persist_debounce_ms: persist_debounce_ms
     }
 
     # Try to load from DB, fall back to provided data
@@ -105,8 +116,13 @@ defmodule Loom.Teams.ContextKeeper do
     # Update registry metadata with actual token count
     update_registry_tokens(state)
 
-    # Async persist initial state
-    async_persist(state)
+    # Only schedule persist if started with non-empty messages
+    state =
+      if messages != [] do
+        schedule_persist(%{state | dirty: true})
+      else
+        state
+      end
 
     {:ok, state}
   end
@@ -117,10 +133,38 @@ defmodule Loom.Teams.ContextKeeper do
     all_messages = state.messages ++ messages
     token_count = estimate_tokens(all_messages)
 
-    state = %{state | messages: all_messages, metadata: merged_metadata, token_count: token_count}
+    state = %{state |
+      messages: all_messages,
+      metadata: merged_metadata,
+      token_count: token_count,
+      dirty: true
+    }
 
     update_registry_tokens(state)
-    async_persist(state)
+    state = schedule_persist(state)
+
+    {:reply, :ok, state}
+  end
+
+  @impl true
+  def handle_call(:flush_persist, _from, state) do
+    state =
+      if state.persist_ref do
+        Process.cancel_timer(state.persist_ref)
+        %{state | persist_ref: nil}
+      else
+        state
+      end
+
+    state =
+      if state.dirty do
+        case do_persist(state) do
+          {:ok, _} -> %{state | dirty: false}
+          {:error, _} = err -> raise "flush_persist failed: #{inspect(err)}"
+        end
+      else
+        state
+      end
 
     {:reply, :ok, state}
   end
@@ -183,8 +227,49 @@ defmodule Loom.Teams.ContextKeeper do
   end
 
   @impl true
+  def handle_info(:persist, state) do
+    state = %{state | persist_ref: nil}
+
+    state =
+      if state.dirty do
+        try do
+          case do_persist(state) do
+            {:ok, _} ->
+              %{state | dirty: false}
+
+            {:error, reason} ->
+              Logger.warning("[ContextKeeper:#{state.id}] Persist failed: #{inspect(reason)}, will retry")
+              schedule_persist(state)
+          end
+        rescue
+          e ->
+            Logger.warning("[ContextKeeper:#{state.id}] Persist raised: #{Exception.message(e)}, will retry")
+            schedule_persist(state)
+        end
+      else
+        state
+      end
+
+    {:noreply, state}
+  end
+
+  @impl true
   def terminate(_reason, state) do
-    persist(state)
+    if state.persist_ref, do: Process.cancel_timer(state.persist_ref)
+
+    if state.dirty do
+      try do
+        case do_persist(state) do
+          {:ok, _} -> :ok
+          {:error, reason} ->
+            Logger.error("[ContextKeeper:#{state.id}] Final persist failed on terminate: #{inspect(reason)}")
+        end
+      rescue
+        e ->
+          Logger.error("[ContextKeeper:#{state.id}] Final persist raised on terminate: #{Exception.message(e)}")
+      end
+    end
+
     :ok
   end
 
@@ -209,7 +294,9 @@ defmodule Loom.Teams.ContextKeeper do
         state
     end
   rescue
-    _ -> state
+    e in DBConnection.OwnershipError ->
+      Logger.debug("[ContextKeeper:#{state.id}] DB not available during init: #{inspect(e.__struct__)}")
+      state
   end
 
   defp restore_messages(nil), do: []
@@ -217,21 +304,16 @@ defmodule Loom.Teams.ContextKeeper do
   defp restore_messages(%{"messages" => messages}) when is_list(messages), do: messages
   defp restore_messages(_), do: []
 
-  defp async_persist(state) do
-    Task.Supervisor.start_child(Loom.Teams.TaskSupervisor, fn ->
-      try do
-        persist(state)
-      rescue
-        _ -> :ok
-      catch
-        :exit, _ -> :ok
-      end
-    end)
-  rescue
-    _ -> :ok
+  defp schedule_persist(%{persist_ref: ref} = state) when is_reference(ref) do
+    state
   end
 
-  defp persist(state) do
+  defp schedule_persist(state) do
+    ref = Process.send_after(self(), :persist, state.persist_debounce_ms)
+    %{state | persist_ref: ref}
+  end
+
+  defp do_persist(state) do
     attrs = %{
       id: state.id,
       team_id: state.team_id,
@@ -249,10 +331,6 @@ defmodule Loom.Teams.ContextKeeper do
       on_conflict: {:replace_all_except, [:id]},
       conflict_target: :id
     )
-  rescue
-    e ->
-      Logger.warning("[ContextKeeper] Persist failed: #{inspect(e)}")
-      :error
   end
 
   defp update_registry_tokens(state) do

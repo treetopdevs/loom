@@ -5,7 +5,9 @@ config :loom, ecto_repos: [Loom.Repo]
 config :loom, Loom.Repo,
   database: Path.expand("../.loom/loom.db", __DIR__),
   pool_size: 5,
-  show_sensitive_data_on_connection_error: true
+  show_sensitive_data_on_connection_error: true,
+  journal_mode: :wal,
+  busy_timeout: 5_000
 
 # Default model configuration
 config :loom,
