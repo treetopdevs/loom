@@ -29,7 +29,12 @@ defmodule Loom.Tools.ContextRetrieve do
 
     opts = []
     opts = if keeper_id, do: Keyword.put(opts, :keeper_id, keeper_id), else: opts
-    opts = if mode, do: Keyword.put(opts, :mode, String.to_existing_atom(mode)), else: opts
+    opts =
+      case mode do
+        "smart" -> Keyword.put(opts, :mode, :smart)
+        "raw" -> Keyword.put(opts, :mode, :raw)
+        _ -> opts
+      end
 
     case ContextRetrieval.retrieve(team_id, query, opts) do
       {:ok, result} when is_binary(result) ->

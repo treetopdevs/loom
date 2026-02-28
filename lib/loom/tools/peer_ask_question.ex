@@ -46,6 +46,9 @@ defmodule Loom.Tools.PeerAskQuestion do
                "The answer will be delivered to you when available.",
            query_id: query_id
          }}
+
+      {:error, reason} ->
+        {:error, "Failed to send question: #{inspect(reason)}"}
     end
   end
 end

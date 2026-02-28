@@ -347,6 +347,9 @@ defmodule Loom.Teams.Agent do
         # Inject agent messages into context for ContextOffload to avoid deadlock.
         # The tool runs inside the agent's handle_call (via AgentLoop → Jido.Exec Task),
         # so calling Agent.get_history(pid) would deadlock on GenServer.call to self.
+        # Note: state.messages is captured at loop start. Messages added mid-loop
+        # (from tool results) won't be in the offloaded set — this is acceptable
+        # since the agent loop runs synchronously within a single handle_call.
         context =
           if tool_module == Loom.Tools.ContextOffload do
             Map.put(context, :agent_messages, state.messages)
