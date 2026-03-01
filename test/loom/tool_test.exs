@@ -81,6 +81,17 @@ defmodule Loom.ToolTest do
     end
 
     @tag :tmp_dir
+    test "raises on symlink loop instead of hanging", %{tmp_dir: proj} do
+      # Create a symlink loop: loop_a -> loop_b -> loop_a
+      File.ln_s!(Path.join(proj, "loop_b"), Path.join(proj, "loop_a"))
+      File.ln_s!(Path.join(proj, "loop_a"), Path.join(proj, "loop_b"))
+
+      assert_raise ArgumentError, ~r/Too many levels of symlinks/, fn ->
+        Tool.safe_path!("loop_a/file.txt", proj)
+      end
+    end
+
+    @tag :tmp_dir
     test "handles unicode filenames", %{tmp_dir: proj} do
       result = Tool.safe_path!("lib/modulo_espanol.ex", proj)
       assert result == Path.join(proj, "lib/modulo_espanol.ex")

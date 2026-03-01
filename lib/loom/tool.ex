@@ -22,10 +22,19 @@ defmodule Loom.Tool do
     resolved
   end
 
+  # Maximum symlink resolution depth to prevent hangs on symlink loops.
+  @max_symlink_depth 40
+
   # Resolve symlinks by walking each path component. For components
   # that are symlinks, follow the link and continue. For non-existent
   # tails (file creation), resolve the parent and append the basename.
-  defp resolve_real(path) do
+  defp resolve_real(path), do: resolve_real(path, @max_symlink_depth)
+
+  defp resolve_real(_path, 0) do
+    raise ArgumentError, "Too many levels of symlinks (possible symlink loop)"
+  end
+
+  defp resolve_real(path, depth) do
     parts = Path.split(path)
 
     Enum.reduce(parts, "", fn part, acc ->
@@ -39,7 +48,7 @@ defmodule Loom.Tool do
               else: Path.expand(target, Path.dirname(current))
 
           # The target itself might contain symlinks — resolve recursively
-          resolve_real(absolute_target)
+          resolve_real(absolute_target, depth - 1)
 
         {:error, _} ->
           current

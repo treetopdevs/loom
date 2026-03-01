@@ -28,16 +28,18 @@ defmodule Loom.Tools.Shell do
 
   # Patterns that are always blocked regardless of allowlist config.
   # Each entry is {regex, human-readable reason}.
+  # Regexes must NOT anchor to end-of-string so chained commands
+  # (e.g. `rm -rf / && echo done`) are still caught.
   @blocked_patterns [
-    {~r/\brm\s+(-[^\s]*\s+)*-[^\s]*r[^\s]*\s+\/\s*$/, "recursive delete of root"},
-    {~r/\brm\s+(-[^\s]*\s+)*-[^\s]*r[^\s]*f[^\s]*\s+\/\s*$/, "forced recursive delete of root"},
+    {~r/\brm\s+(-[^\s]*\s+)*-[^\s]*r[^\s]*\s+\/(\s|$)/, "recursive delete of root"},
+    {~r/\brm\s+(-[^\s]*\s+)*-[^\s]*r[^\s]*f[^\s]*\s+\/(\s|$)/, "forced recursive delete of root"},
     {~r/\bmkfs\b/, "filesystem formatting"},
     {~r/\bdd\b\s+.*of=\/dev\//, "raw device write"},
     {~r/:\(\)\{\s*:\|:&\s*\};:/, "fork bomb"},
     {~r/\.\s*\/dev\/sd/, "raw device access"},
     {~r/>\s*\/dev\/sd/, "raw device write"},
     {~r/\bchmod\s+(-[^\s]+\s+)*[0-7]*777\s+\//, "chmod 777 on root"},
-    {~r/\bchown\s+(-[^\s]+\s+)*.*\s+\/\s*$/, "chown on root"},
+    {~r/\bchown\s+(-[^\s]+\s+)*.*\s+\/(\s|$)/, "chown on root"},
     {~r/\bcurl\b.*\|\s*(ba)?sh/, "pipe curl to shell"},
     {~r/\bwget\b.*\|\s*(ba)?sh/, "pipe wget to shell"},
     {~r/\beval\b.*\$\(curl/, "eval curl output"},
@@ -93,23 +95,51 @@ defmodule Loom.Tools.Shell do
   end
 
   defp check_working_directory(command, project_path) do
-    # Block attempts to escape via cd to absolute paths outside project
+    project_root = String.trim_trailing(project_path, "/")
+
+    # 1. Block cd to paths outside project
     cd_targets = Regex.scan(~r/\bcd\s+([^\s;&|]+)/, command, capture: :all_but_first)
 
-    escape_attempt =
+    cd_escape =
       Enum.find(cd_targets, fn [target] ->
         expanded = Path.expand(target, project_path)
-        not String.starts_with?(expanded, project_path)
+        not path_within?(expanded, project_root)
       end)
 
-    case escape_attempt do
-      [target] ->
-        Logger.warning("[Shell] Blocked directory escape: cd #{target}")
-        {:error, "Cannot cd outside project directory: #{target}"}
+    if cd_escape do
+      [target] = cd_escape
+      Logger.warning("[Shell] Blocked directory escape: cd #{target}")
+      {:error, "Cannot cd outside project directory: #{target}"}
+    else
+      # 2. Block absolute paths outside project anywhere in the command.
+      # Extract tokens that look like absolute paths (starting with /).
+      abs_paths =
+        Regex.scan(~r{(?:^|\s)(\/[^\s;&|]+)}, command, capture: :all_but_first)
+        |> List.flatten()
+        # Ignore /dev/null (harmless) and paths already caught by blocklist
+        |> Enum.reject(&(&1 == "/dev/null"))
 
-      nil ->
-        :ok
+      outside =
+        Enum.find(abs_paths, fn p ->
+          expanded = Path.expand(p)
+          not path_within?(expanded, project_root)
+        end)
+
+      case outside do
+        nil ->
+          :ok
+
+        path ->
+          Logger.warning("[Shell] Blocked absolute path outside project: #{path}")
+          {:error, "Cannot access paths outside project directory: #{path}"}
+      end
     end
+  end
+
+  # Check if `path` is equal to or nested inside `root`, with a proper
+  # path-boundary check (prevents /tmp/proj2 matching /tmp/proj).
+  defp path_within?(path, root) do
+    path == root or String.starts_with?(path, root <> "/")
   end
 
   @doc false

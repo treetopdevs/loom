@@ -18,23 +18,33 @@ defmodule Loom.Tools.PeerCompleteTask do
 
   @impl true
   def run(params, _context) do
-    _team_id = param!(params, :team_id)
+    team_id = param!(params, :team_id)
     task_id = param!(params, :task_id)
     result = param(params, :result) || ""
 
-    case Tasks.complete_task(task_id, result) do
-      {:ok, task} ->
-        summary = """
-        Task completed:
-          ID: #{task.id}
-          Title: #{task.title}
-          Status: #{task.status}
-        """
+    # Verify the task belongs to this team before completing it
+    case Tasks.get_task(task_id) do
+      {:error, :not_found} ->
+        {:error, "Task not found: #{task_id}"}
 
-        {:ok, %{result: String.trim(summary), task_id: task.id}}
+      {:ok, task} when task.team_id != team_id ->
+        {:error, "Task #{task_id} belongs to a different team"}
 
-      {:error, reason} ->
-        {:error, "Failed to complete task: #{inspect(reason)}"}
+      {:ok, _task} ->
+        case Tasks.complete_task(task_id, result) do
+          {:ok, task} ->
+            summary = """
+            Task completed:
+              ID: #{task.id}
+              Title: #{task.title}
+              Status: #{task.status}
+            """
+
+            {:ok, %{result: String.trim(summary), task_id: task.id}}
+
+          {:error, reason} ->
+            {:error, "Failed to complete task: #{inspect(reason)}"}
+        end
     end
   end
 end

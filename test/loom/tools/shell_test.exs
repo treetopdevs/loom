@@ -112,6 +112,18 @@ defmodule Loom.Tools.ShellTest do
     end
 
     @tag :tmp_dir
+    test "blocks rm -rf / when chained with &&", %{project_path: proj} do
+      assert {:error, msg} = Shell.run(%{"command" => "rm -rf / && echo done"}, %{project_path: proj})
+      assert msg =~ "blocked"
+    end
+
+    @tag :tmp_dir
+    test "blocks rm -rf / when chained with ;", %{project_path: proj} do
+      assert {:error, msg} = Shell.run(%{"command" => "rm -rf / ; echo done"}, %{project_path: proj})
+      assert msg =~ "blocked"
+    end
+
+    @tag :tmp_dir
     test "allows normal rm within project", %{project_path: proj} do
       File.write!(Path.join(proj, "temp.txt"), "delete me")
       assert {:ok, %{result: result}} = Shell.run(%{"command" => "rm temp.txt"}, %{project_path: proj})
@@ -132,6 +144,27 @@ defmodule Loom.Tools.ShellTest do
     test "blocks cd .. escape", %{project_path: proj} do
       assert {:error, msg} = Shell.run(%{"command" => "cd ../../.. && ls"}, %{project_path: proj})
       assert msg =~ "Cannot cd outside project"
+    end
+
+    @tag :tmp_dir
+    test "blocks absolute path access without cd", %{project_path: proj} do
+      assert {:error, msg} = Shell.run(%{"command" => "head -n 1 /etc/hosts"}, %{project_path: proj})
+      assert msg =~ "Cannot access paths outside project"
+    end
+
+    @tag :tmp_dir
+    test "blocks sibling project path prefix confusion", %{project_path: proj} do
+      # If project is /tmp/proj, should block /tmp/proj2
+      sibling = proj <> "2"
+      assert {:error, msg} = Shell.run(%{"command" => "cat #{sibling}/secret.txt"}, %{project_path: proj})
+      assert msg =~ "Cannot access paths outside project"
+    end
+
+    @tag :tmp_dir
+    test "allows absolute paths within project", %{project_path: proj} do
+      File.write!(Path.join(proj, "ok.txt"), "fine")
+      assert {:ok, %{result: result}} = Shell.run(%{"command" => "cat #{Path.join(proj, "ok.txt")}"}, %{project_path: proj})
+      assert result =~ "fine"
     end
 
     @tag :tmp_dir
