@@ -33,8 +33,8 @@ defmodule LoomWeb.CoreComponents do
       role="alert"
       class={[
         "fixed top-2 right-2 mr-2 w-80 sm:w-96 z-50 rounded-lg p-3 ring-1",
-        @kind == :info && "bg-emerald-50 text-emerald-800 ring-emerald-500 fill-cyan-900",
-        @kind == :error && "bg-rose-50 text-rose-900 ring-rose-500 fill-rose-900"
+        @kind == :info && "bg-emerald-900/80 text-emerald-200 ring-emerald-500/50 fill-emerald-400",
+        @kind == :error && "bg-rose-900/80 text-rose-200 ring-rose-500/50 fill-rose-400"
       ]}
       {@rest}
     >

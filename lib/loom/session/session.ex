@@ -139,6 +139,7 @@ defmodule Loom.Session do
 
       {:error, reason, state} ->
         Logger.error("[Session] Architect.run failed session=#{state.id}: #{inspect(reason)}")
+        broadcast(state.id, {:llm_error, state.id, format_error(reason)})
         state = update_status(state, :idle)
         {:reply, {:error, reason}, state}
     end
@@ -308,4 +309,12 @@ defmodule Loom.Session do
   rescue
     _ -> :ok
   end
+
+  defp format_error(%{reason: reason, status: status}) when is_binary(reason) do
+    if status, do: "[#{status}] #{reason}", else: reason
+  end
+
+  defp format_error(%{message: msg}) when is_binary(msg), do: msg
+  defp format_error(reason) when is_binary(reason), do: reason
+  defp format_error(reason), do: inspect(reason)
 end

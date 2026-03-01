@@ -134,7 +134,7 @@ defmodule Loom.Session.Architect do
     }
 
     case LoomTelemetry.span_llm_request(telemetry_meta, fn ->
-           call_llm(provider, model_id, req_messages, opts)
+           call_llm(provider, model_id, req_messages, [{:session_id, state.id} | opts])
          end) do
       {:ok, response} ->
         # Check if the architect chose to use tools (e.g. team_spawn) instead of a JSON plan
@@ -211,7 +211,7 @@ defmodule Loom.Session.Architect do
       Enum.reduce(tool_calls, {[], []}, fn tool_call, {res, team_ids} ->
         tool_name = tool_call[:name] || tool_call["name"]
         tool_args = tool_call[:arguments] || tool_call["arguments"] || %{}
-        context = %{project_path: state.project_path, session_id: state.id, parent_team_id: state.team_id}
+        context = %{project_path: state.project_path, session_id: state.id, parent_team_id: state.team_id, model: state.model}
 
         case Jido.AI.ToolAdapter.lookup_action(tool_name, @planning_tools) do
           {:ok, tool_module} ->
@@ -313,7 +313,7 @@ defmodule Loom.Session.Architect do
     telemetry_meta = %{session_id: state.id, model: model, architect_phase: :conversational}
 
     case LoomTelemetry.span_llm_request(telemetry_meta, fn ->
-           call_llm(provider, model_id, messages, [])
+           call_llm(provider, model_id, messages, [session_id: state.id])
          end) do
       {:ok, response} ->
         text = extract_text(response)
@@ -415,7 +415,7 @@ defmodule Loom.Session.Architect do
     }
 
     case LoomTelemetry.span_llm_request(telemetry_meta, fn ->
-           call_llm(provider, model_id, messages, opts)
+           call_llm(provider, model_id, messages, [{:session_id, state.id} | opts])
          end) do
       {:ok, response} ->
         classified = ReqLLM.Response.classify(response)
@@ -697,17 +697,35 @@ defmodule Loom.Session.Architect do
   end
 
   defp call_llm(provider, model_id, messages, opts) do
+    {session_id, opts} = Keyword.pop(opts, :session_id)
     model_spec = "#{provider}:#{model_id}"
     Logger.debug("[Architect] Calling LLM model=#{model_spec} msg_count=#{length(messages)} opts=#{inspect(Map.keys(Map.new(opts)))}")
 
+    if session_id do
+      broadcast(session_id, {:stream_start, session_id})
+    end
+
     result =
       try do
-        ReqLLM.generate_text(model_spec, messages, opts)
+        with {:ok, stream_response} <- ReqLLM.stream_text(model_spec, messages, opts) do
+          ReqLLM.StreamResponse.process_stream(stream_response,
+            on_result: fn text ->
+              if session_id do
+                broadcast(session_id, {:stream_delta, session_id, %{text: text}})
+              end
+            end,
+            on_tool_call: fn _chunk -> :ok end
+          )
+        end
       rescue
         e ->
           Logger.error("[Architect] LLM call crashed: #{Exception.message(e)}")
           {:error, Exception.message(e)}
       end
+
+    if session_id do
+      broadcast(session_id, {:stream_end, session_id})
+    end
 
     case result do
       {:ok, _} -> Logger.debug("[Architect] LLM call succeeded for #{model_spec}")

@@ -755,6 +755,15 @@ defmodule Loom.Teams.Agent do
     topic = "team:#{team_id}"
 
     case event_name do
+      :stream_start ->
+        Phoenix.PubSub.broadcast(Loom.PubSub, topic, {:agent_stream_start, agent_name, payload})
+
+      :stream_delta ->
+        Phoenix.PubSub.broadcast(Loom.PubSub, topic, {:agent_stream_delta, agent_name, payload})
+
+      :stream_end ->
+        Phoenix.PubSub.broadcast(Loom.PubSub, topic, {:agent_stream_end, agent_name, payload})
+
       :tool_executing ->
         Phoenix.PubSub.broadcast(Loom.PubSub, topic, {:tool_executing, agent_name, payload})
 

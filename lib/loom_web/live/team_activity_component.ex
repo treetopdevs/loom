@@ -21,7 +21,8 @@ defmodule LoomWeb.TeamActivityComponent do
     task_complete: %{label: "done", bg: "bg-green-400/20", text: "text-green-400"},
     task_assigned: %{label: "assigned", bg: "bg-cyan-400/20", text: "text-cyan-400"},
     discovery: %{label: "discovery", bg: "bg-yellow-400/20", text: "text-yellow-400"},
-    error: %{label: "error", bg: "bg-red-400/20", text: "text-red-400"}
+    error: %{label: "error", bg: "bg-red-400/20", text: "text-red-400"},
+    thinking: %{label: "thinking", bg: "bg-indigo-400/20", text: "text-indigo-400"}
   }
 
   @impl true
@@ -32,6 +33,7 @@ defmodule LoomWeb.TeamActivityComponent do
        agent_filter: nil,
        type_filter: MapSet.new(),
        known_agents: [],
+       streaming_agents: %{},
        subscribed: false
      )}
   end
@@ -113,6 +115,37 @@ defmodule LoomWeb.TeamActivityComponent do
   def handle_info({:agent_message, from_agent, to_agent, content}, socket) do
     event = build_event(:message, from_agent, "to #{to_agent}: #{content}")
     {:noreply, append_event(socket, event)}
+  end
+
+  def handle_info({:agent_stream_start, agent_name, _payload}, socket) do
+    streaming = Map.put(socket.assigns.streaming_agents, agent_name, "")
+    {:noreply, assign(socket, streaming_agents: streaming)}
+  end
+
+  def handle_info({:agent_stream_delta, agent_name, %{text: chunk}}, socket) do
+    streaming =
+      Map.update(
+        socket.assigns.streaming_agents,
+        agent_name,
+        chunk,
+        &(&1 <> chunk)
+      )
+
+    {:noreply, assign(socket, streaming_agents: streaming)}
+  end
+
+  def handle_info({:agent_stream_end, agent_name, _payload}, socket) do
+    text = Map.get(socket.assigns.streaming_agents, agent_name, "")
+    streaming = Map.delete(socket.assigns.streaming_agents, agent_name)
+
+    socket = assign(socket, streaming_agents: streaming)
+
+    if String.length(text) > 0 do
+      event = build_event(:thinking, agent_name, text)
+      {:noreply, append_event(socket, event)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_info(_msg, socket) do
@@ -197,6 +230,25 @@ defmodule LoomWeb.TeamActivityComponent do
         >
           {config.label}
         </button>
+      </div>
+
+      <!-- Active Streams -->
+      <div
+        :for={{agent_name, text} <- @streaming_agents}
+        :if={text != ""}
+        class="px-2 py-1.5 bg-indigo-900/20 border-b border-indigo-500/10 animate-fade-in"
+      >
+        <div class="flex items-center gap-2">
+          <span
+            class="w-2 h-2 rounded-full flex-shrink-0 animate-pulse"
+            style={"background-color: #{agent_color(agent_name)}"}
+          ></span>
+          <span class="text-xs font-medium text-indigo-300">{agent_name}</span>
+          <span class="text-xs text-indigo-400/60">thinking...</span>
+        </div>
+        <p class="text-xs text-gray-400 mt-1 truncate max-w-full">
+          {String.slice(text, -120, 120)}
+        </p>
       </div>
 
       <!-- Event Feed -->
@@ -337,7 +389,8 @@ defmodule LoomWeb.TeamActivityComponent do
       {:task_complete, @type_config.task_complete},
       {:task_assigned, @type_config.task_assigned},
       {:discovery, @type_config.discovery},
-      {:error, @type_config.error}
+      {:error, @type_config.error},
+      {:thinking, @type_config.thinking}
     ]
   end
 end

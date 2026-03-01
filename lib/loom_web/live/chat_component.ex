@@ -84,16 +84,52 @@ defmodule LoomWeb.ChatComponent do
           <% end %>
         </div>
 
-        <%!-- Thinking State --%>
-        <div :if={@status == :thinking} class="flex items-start gap-3 max-w-[80%] animate-fade-in-up">
+        <%!-- Streaming / Thinking State --%>
+        <div :if={@streaming || @status == :thinking} class="flex items-start gap-3 max-w-[85%] animate-fade-in-up">
           <div class="w-7 h-7 rounded-full bg-violet-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-violet-500/30">
             <span class="text-xs font-bold text-white">L</span>
           </div>
-          <div class="bg-gray-800/60 rounded-xl px-4 py-3 shadow-sm shadow-violet-500/5 border border-violet-500/10">
-            <div class="flex items-center gap-1.5">
-              <span class="thinking-dot w-2 h-2 bg-violet-400 rounded-full"></span>
-              <span class="thinking-dot w-2 h-2 bg-violet-400 rounded-full"></span>
-              <span class="thinking-dot w-2 h-2 bg-violet-400 rounded-full"></span>
+          <%= if @streaming && @streaming_content != "" do %>
+            <div class="border-l-2 border-violet-500/40 pl-3 py-0.5">
+              <div class="max-w-none chat-markdown">
+                {render_markdown(@streaming_content, streaming: true)}
+              </div>
+              <span class="inline-block w-2 h-4 bg-violet-400 animate-pulse ml-0.5"></span>
+            </div>
+          <% else %>
+            <div class="bg-gray-800/60 rounded-xl px-4 py-3 shadow-sm shadow-violet-500/5 border border-violet-500/10">
+              <div class="flex items-center gap-1.5">
+                <span class="thinking-dot w-2 h-2 bg-violet-400 rounded-full"></span>
+                <span class="thinking-dot w-2 h-2 bg-violet-400 rounded-full"></span>
+                <span class="thinking-dot w-2 h-2 bg-violet-400 rounded-full"></span>
+              </div>
+            </div>
+          <% end %>
+        </div>
+
+        <%!-- Architect Plan Progress --%>
+        <div :if={@plan_steps != []} class="ml-10 animate-fade-in-up">
+          <div class="border border-violet-500/20 rounded-xl overflow-hidden bg-gray-900/50">
+            <div class="flex items-center gap-2 px-3 py-2 bg-violet-500/10 border-b border-violet-500/20">
+              <span class="text-violet-400 text-sm">&#9881;</span>
+              <span class="text-xs font-medium text-violet-300">
+                {if @architect_phase == :executing, do: "Executing Plan", else: "Planning..."}
+              </span>
+            </div>
+            <div class="p-3 space-y-1.5">
+              <div :for={{step, idx} <- Enum.with_index(@plan_steps)} class="flex items-center gap-2 text-xs">
+                <%= cond do %>
+                  <% @current_step != nil && idx < @current_step -> %>
+                    <span class="text-green-400">&#10003;</span>
+                  <% @current_step == idx -> %>
+                    <span class="text-violet-400 animate-spin">&#9881;</span>
+                  <% true -> %>
+                    <span class="text-gray-600">&#9675;</span>
+                <% end %>
+                <span class={"font-mono #{if @current_step == idx, do: "text-violet-300", else: "text-gray-400"}"}>
+                  {step["action"]} {step["file"]}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -113,15 +149,24 @@ defmodule LoomWeb.ChatComponent do
     """
   end
 
-  defp render_markdown(nil), do: ""
+  defp render_markdown(content, opts \\ [])
+  defp render_markdown(nil, _opts), do: ""
+  defp render_markdown("", _opts), do: ""
 
-  defp render_markdown(content) when is_binary(content) do
-    content
-    |> Earmark.as_html!(%Earmark.Options{code_class_prefix: "language-"})
-    |> Phoenix.HTML.raw()
+  defp render_markdown(content, opts) when is_binary(content) do
+    streaming = Keyword.get(opts, :streaming, false)
+
+    doc =
+      MDEx.new(streaming: streaming)
+      |> MDEx.Document.put_markdown(content)
+
+    case MDEx.to_html(doc) do
+      {:ok, html} -> Phoenix.HTML.raw(html)
+      _ -> Phoenix.HTML.raw("<p>#{Phoenix.HTML.html_escape(content)}</p>")
+    end
   end
 
-  defp render_markdown(_), do: ""
+  defp render_markdown(_, _opts), do: ""
 
   defp truncate_result(nil), do: ""
 

@@ -9,68 +9,40 @@ defmodule Loom.Tools.TeamSpawn do
       "Create a new agent team and spawn agents with specified roles. " <>
         "Valid roles: researcher (read-only exploration), coder (implementation), " <>
         "reviewer (code review), tester (run tests), lead (coordination). " <>
-        "Optionally use a template name to spawn a pre-configured team. " <>
+        "You MUST provide a roles list with name and role for each agent. " <>
         "Returns a team status summary with team_id and agent list.",
     schema: [
       team_name: [type: :string, required: true, doc: "Human-readable team name"],
-      roles: [type: {:list, :map}, doc: "List of %{name, role} maps. role must be one of: researcher, coder, reviewer, tester, lead"],
-      template: [type: :string, doc: "Template name from .loom.toml to use instead of explicit roles"],
+      roles: [type: {:list, :map}, required: true, doc: "List of %{name, role} maps. role must be one of: researcher, coder, reviewer, tester, lead"],
       project_path: [type: :string, doc: "Path to the project for agents to work on"]
     ]
 
   import Loom.Tool, only: [param!: 2, param: 2]
 
-  alias Loom.Teams.{Manager, Templates}
+  alias Loom.Teams.Manager
 
   @impl true
   def run(params, context) do
     team_name = param!(params, :team_name)
-    template = param(params, :template)
     project_path = param(params, :project_path) || param(context, :project_path)
     parent_team_id = param(context, :parent_team_id)
+    model = param(context, :model)
 
-    if template do
-      spawn_from_template(team_name, template, project_path)
-    else
-      roles = param!(params, :roles)
-      spawn_from_roles(team_name, roles, project_path, parent_team_id)
-    end
+    roles = param!(params, :roles)
+    spawn_from_roles(team_name, roles, project_path, parent_team_id, model)
   end
 
-  defp spawn_from_template(team_name, template_name, project_path) do
-    case Templates.spawn_from_template(team_name, template_name, project_path: project_path) do
-      {:ok, team_id, agents} ->
-        results =
-          Enum.map(agents, fn a ->
-            case a.status do
-              :ok -> "  - #{a.name} (#{a.role}): spawned"
-              {:error, reason} -> "  - #{a.name} (#{a.role}): failed - #{inspect(reason)}"
-            end
-          end)
-
-        summary = """
-        Team "#{team_name}" created from template "#{template_name}" (id: #{team_id})
-        Agents:
-        #{Enum.join(results, "\n")}
-        """
-
-        {:ok, %{result: String.trim(summary), team_id: team_id}}
-
-      {:error, :template_not_found} ->
-        {:error, "Template '#{template_name}' not found in .loom.toml"}
-
-      {:error, reason} ->
-        {:error, "Failed to create team from template: #{inspect(reason)}"}
-    end
-  end
-
-  defp spawn_from_roles(team_name, roles, project_path, parent_team_id \\ nil) do
+  defp spawn_from_roles(team_name, roles, project_path, parent_team_id, model) do
     {:ok, team_id} =
       if parent_team_id do
         Manager.create_sub_team(parent_team_id, "architect", name: team_name, project_path: project_path)
       else
         Manager.create_team(name: team_name, project_path: project_path)
       end
+
+    spawn_opts =
+      [project_path: project_path]
+      |> then(fn opts -> if model, do: [{:model, model} | opts], else: opts end)
 
     results =
       Enum.map(roles, fn role_map ->
@@ -81,7 +53,7 @@ defmodule Loom.Tools.TeamSpawn do
         if is_nil(role_atom) do
           "  - #{name} (#{role}): failed - unknown role. Valid: #{Enum.join(@valid_roles, ", ")}"
         else
-          case Manager.spawn_agent(team_id, name, role_atom, project_path: project_path) do
+          case Manager.spawn_agent(team_id, name, role_atom, spawn_opts) do
             {:ok, _pid} -> "  - #{name} (#{role_atom}): spawned"
             {:error, reason} -> "  - #{name} (#{role_atom}): failed - #{inspect(reason)}"
           end
