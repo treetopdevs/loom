@@ -8,13 +8,12 @@ defmodule Loomkin.Teams.Role do
   for all built-in roles — meaning "use whatever the user configured."
   """
 
-  defstruct [:name, :model_tier, :tools, :max_iterations, :system_prompt, :budget_limit]
+  defstruct [:name, :model_tier, :tools, :system_prompt, :budget_limit]
 
   @type t :: %__MODULE__{
           name: atom(),
           model_tier: atom(),
           tools: [module()],
-          max_iterations: pos_integer(),
           system_prompt: String.t(),
           budget_limit: float() | nil
         }
@@ -182,7 +181,6 @@ defmodule Loomkin.Teams.Role do
     lead: %{
       model_tier: :default,
       tools: @all_tools,
-      max_iterations: 25,
       system_prompt: """
       You are the team lead. Your job is to decompose complex tasks into smaller subtasks,
       coordinate work across team agents, and synthesize results into a coherent response.
@@ -199,7 +197,6 @@ defmodule Loomkin.Teams.Role do
     researcher: %{
       model_tier: :default,
       tools: @read_only_tools ++ @decision_tools ++ @peer_tools,
-      max_iterations: 15,
       system_prompt: """
       You are a research agent. Your job is to explore the codebase, analyze patterns,
       and report findings to the team lead.
@@ -217,7 +214,6 @@ defmodule Loomkin.Teams.Role do
     coder: %{
       model_tier: :default,
       tools: @read_only_tools ++ @write_tools ++ @exec_tools ++ [Loomkin.Tools.DecisionLog] ++ @peer_tools,
-      max_iterations: 25,
       system_prompt: """
       You are a coding agent. Your job is to implement changes, write code, and run commands.
 
@@ -234,7 +230,6 @@ defmodule Loomkin.Teams.Role do
     reviewer: %{
       model_tier: :default,
       tools: @read_only_tools ++ [Loomkin.Tools.Shell] ++ @decision_tools ++ @peer_tools,
-      max_iterations: 10,
       system_prompt: """
       You are a code review agent. Your job is to review code quality, find issues,
       and suggest improvements.
@@ -252,7 +247,6 @@ defmodule Loomkin.Teams.Role do
     tester: %{
       model_tier: :default,
       tools: @read_only_tools ++ [Loomkin.Tools.Shell, Loomkin.Tools.DecisionLog] ++ @peer_tools,
-      max_iterations: 15,
       system_prompt: """
       You are a testing agent. Your job is to run tests, validate changes, and report results.
 
@@ -327,7 +321,6 @@ defmodule Loomkin.Teams.Role do
       name: name,
       model_tier: get_config_value(config, :model_tier, base.model_tier),
       tools: resolve_tools(config, base.tools),
-      max_iterations: get_config_value(config, :max_iterations, base.max_iterations),
       system_prompt: get_config_value(config, :system_prompt, base.system_prompt),
       budget_limit: get_config_value(config, :budget_limit, base.budget_limit)
     }

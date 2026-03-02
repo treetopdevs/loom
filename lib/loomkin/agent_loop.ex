@@ -13,7 +13,6 @@ defmodule Loomkin.AgentLoop do
 
   require Logger
 
-  @default_max_iterations 25
   @max_rate_limit_retries 3
 
   @type on_event :: (atom(), map() -> :ok)
@@ -26,7 +25,6 @@ defmodule Loomkin.AgentLoop do
     * `:model` - LLM model string (e.g. "anthropic:claude-sonnet-4-6"). Required.
     * `:tools` - list of tool action modules. Default `[]`.
     * `:system_prompt` - the system prompt string. Required.
-    * `:max_iterations` - max tool execution cycles. Default #{@default_max_iterations}.
     * `:project_path` - path to the project being worked on.
     * `:session_id` - session identifier (used for context window enrichment).
     * `:on_event` - `fn event_name, payload -> :ok end` callback for streaming events.
@@ -62,12 +60,24 @@ defmodule Loomkin.AgentLoop do
       {:rate_limited, provider} ->
         if attempt < @max_rate_limit_retries do
           backoff_ms = Integer.pow(2, attempt) * 1_000
-          Logger.warning("Rate limited by #{provider}, retry #{attempt + 1}/#{@max_rate_limit_retries} after #{backoff_ms}ms")
-          config.on_event.(:rate_limited, %{provider: provider, retry: attempt + 1, backoff_ms: backoff_ms})
+
+          Logger.warning(
+            "Rate limited by #{provider}, retry #{attempt + 1}/#{@max_rate_limit_retries} after #{backoff_ms}ms"
+          )
+
+          config.on_event.(:rate_limited, %{
+            provider: provider,
+            retry: attempt + 1,
+            backoff_ms: backoff_ms
+          })
+
           Process.sleep(backoff_ms)
           run_with_rate_limit_retry(messages, config, attempt + 1)
         else
-          Logger.warning("Rate limited by #{provider}, max retries (#{@max_rate_limit_retries}) exhausted")
+          Logger.warning(
+            "Rate limited by #{provider}, max retries (#{@max_rate_limit_retries}) exhausted"
+          )
+
           {:error, :rate_limited, messages}
         end
     end
@@ -80,7 +90,6 @@ defmodule Loomkin.AgentLoop do
       model: Keyword.fetch!(opts, :model),
       tools: Keyword.get(opts, :tools, []),
       system_prompt: Keyword.fetch!(opts, :system_prompt),
-      max_iterations: Keyword.get(opts, :max_iterations, @default_max_iterations),
       project_path: Keyword.get(opts, :project_path),
       session_id: Keyword.get(opts, :session_id),
       agent_name: Keyword.get(opts, :agent_name),
@@ -93,12 +102,6 @@ defmodule Loomkin.AgentLoop do
   end
 
   # -- Loop --------------------------------------------------------------------
-
-  defp do_loop(messages, config, iteration) when iteration >= config.max_iterations do
-    error_msg = "Maximum tool call iterations (#{config.max_iterations}) exceeded."
-    Logger.warning(error_msg)
-    {:error, error_msg, messages}
-  end
 
   defp do_loop(messages, config, iteration) do
     # Auto-offload context if agent is above threshold
@@ -146,10 +149,16 @@ defmodule Loomkin.AgentLoop do
       iteration: iteration
     }
 
-    Logger.debug("AgentLoop calling LLM: #{provider}:#{model_id}, #{length(req_messages)} messages, #{length(opts[:tools] || [])} tools")
+    Logger.debug(
+      "AgentLoop calling LLM: #{provider}:#{model_id}, #{length(req_messages)} messages, #{length(opts[:tools] || [])} tools"
+    )
 
     on_retry = fn attempt, reason, backoff_ms ->
-      emit(config, :llm_retry, %{attempt: attempt, reason: inspect(reason), backoff_ms: backoff_ms})
+      emit(config, :llm_retry, %{
+        attempt: attempt,
+        reason: inspect(reason),
+        backoff_ms: backoff_ms
+      })
     end
 
     case Loomkin.LLMRetry.with_retry([on_retry: on_retry], fn ->
@@ -170,7 +179,13 @@ defmodule Loomkin.AgentLoop do
 
   # -- Response handling -------------------------------------------------------
 
-  defp handle_classified(%{type: :tool_calls} = classified, response, messages, config, iteration) do
+  defp handle_classified(
+         %{type: :tool_calls} = classified,
+         response,
+         messages,
+         config,
+         iteration
+       ) do
     emit(config, :tool_calls_received, %{
       tool_calls: classified.tool_calls,
       text: classified.text
@@ -206,7 +221,13 @@ defmodule Loomkin.AgentLoop do
     end
   end
 
-  defp handle_classified(%{type: :final_answer} = classified, response, messages, config, _iteration) do
+  defp handle_classified(
+         %{type: :final_answer} = classified,
+         response,
+         messages,
+         config,
+         _iteration
+       ) do
     response_text = classified.text
 
     assistant_msg = %{role: :assistant, content: response_text}
@@ -239,7 +260,14 @@ defmodule Loomkin.AgentLoop do
     tool_call_id = tool_call[:id] || "call_#{Ecto.UUID.generate()}"
     tool_path = tool_args["file_path"] || tool_args["path"] || "*"
 
-    context = %{project_path: config.project_path, session_id: config.session_id, agent_name: config.agent_name, team_id: config.team_id, parent_team_id: config.team_id, model: config.model}
+    context = %{
+      project_path: config.project_path,
+      session_id: config.session_id,
+      agent_name: config.agent_name,
+      team_id: config.team_id,
+      parent_team_id: config.team_id,
+      model: config.model
+    }
 
     emit(config, :tool_executing, %{tool_name: tool_name, tool_target: tool_path})
 
@@ -260,6 +288,19 @@ defmodule Loomkin.AgentLoop do
 
         case permission_result do
           :allowed ->
+            # Tag context for permitted external reads so file_read can bypass safe_path!
+            context =
+              if config.project_path &&
+                   Loomkin.Tool.outside_project?(
+                     Loomkin.Tool.resolve_path(tool_path, config.project_path),
+                     config.project_path
+                   ) do
+                Map.put(context, :allowed_external_path,
+                  Loomkin.Tool.resolve_path(tool_path, config.project_path))
+              else
+                context
+              end
+
             result_text = run_tool(tool_module, tool_args, context, config)
             messages = record_tool_result(messages, config, tool_name, tool_call_id, result_text)
             {:ok, messages}
@@ -491,7 +532,12 @@ defmodule Loomkin.AgentLoop do
     end
   end
 
-  defp maybe_auto_offload(messages, %{team_id: team_id, agent_name: agent_name, model: model, on_event: on_event})
+  defp maybe_auto_offload(messages, %{
+         team_id: team_id,
+         agent_name: agent_name,
+         model: model,
+         on_event: on_event
+       })
        when not is_nil(team_id) and not is_nil(agent_name) do
     state = %{team_id: team_id, name: agent_name, messages: messages, model: model}
 

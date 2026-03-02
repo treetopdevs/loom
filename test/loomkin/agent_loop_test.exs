@@ -45,17 +45,6 @@ defmodule Loomkin.AgentLoopTest do
     end
   end
 
-  describe "run/2 with max_iterations" do
-    test "respects max_iterations of 0" do
-      # max_iterations=0 means the loop exits immediately
-      result =
-        AgentLoop.run([], model: "test:model", system_prompt: "test", max_iterations: 0)
-
-      assert {:error, msg, []} = result
-      assert msg =~ "Maximum tool call iterations (0) exceeded"
-    end
-  end
-
   describe "run/2 with LLM error (no API key)" do
     test "returns error when LLM call fails" do
       messages = [%{role: :user, content: "Hello"}]
@@ -183,7 +172,7 @@ defmodule Loomkin.AgentLoopTest do
       result = AgentLoop.default_run_tool(Loomkin.Tools.FileRead, string_keyed_args, context)
 
       assert is_binary(result)
-      assert result =~ "Error:"
+      assert result =~ "outside the project directory"
     end
   end
 

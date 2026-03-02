@@ -169,25 +169,6 @@ defmodule Loomkin.Teams.RoleTest do
     end
   end
 
-  describe "max_iterations" do
-    test "each role has the expected iteration limits" do
-      {:ok, lead} = Role.get(:lead)
-      assert lead.max_iterations == 25
-
-      {:ok, researcher} = Role.get(:researcher)
-      assert researcher.max_iterations == 15
-
-      {:ok, coder} = Role.get(:coder)
-      assert coder.max_iterations == 25
-
-      {:ok, reviewer} = Role.get(:reviewer)
-      assert reviewer.max_iterations == 10
-
-      {:ok, tester} = Role.get(:tester)
-      assert tester.max_iterations == 15
-    end
-  end
-
   describe "uniform model default" do
     test "all built-in roles use :default model_tier" do
       for role_name <- Role.built_in_roles() do
@@ -202,7 +183,6 @@ defmodule Loomkin.Teams.RoleTest do
     test "creates a custom role from a config map" do
       config = %{
         model_tier: :expert,
-        max_iterations: 20,
         system_prompt: "You are a custom agent.",
         budget_limit: 5.0
       }
@@ -211,21 +191,18 @@ defmodule Loomkin.Teams.RoleTest do
 
       assert role.name == :custom_role
       assert role.model_tier == :expert
-      assert role.max_iterations == 20
       assert role.system_prompt == "You are a custom agent."
       assert role.budget_limit == 5.0
     end
 
     test "overrides a built-in role with config values" do
       config = %{
-        max_iterations: 50,
         budget_limit: 10.0
       }
 
       role = Role.from_config(:coder, config)
 
       assert role.name == :coder
-      assert role.max_iterations == 50
       assert role.budget_limit == 10.0
       # Preserves defaults not overridden
       assert role.model_tier == :default
@@ -235,14 +212,12 @@ defmodule Loomkin.Teams.RoleTest do
     test "accepts string keys in config map" do
       config = %{
         "model_tier" => :grunt,
-        "max_iterations" => 5,
         "system_prompt" => "String key prompt."
       }
 
       role = Role.from_config(:custom, config)
 
       assert role.model_tier == :grunt
-      assert role.max_iterations == 5
       assert role.system_prompt == "String key prompt."
     end
 

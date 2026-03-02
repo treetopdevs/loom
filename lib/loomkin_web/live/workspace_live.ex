@@ -33,7 +33,9 @@ defmodule LoomkinWeb.WorkspaceLive do
         streaming_content: "",
         architect_phase: nil,
         plan_steps: [],
-        current_step: nil
+        current_step: nil,
+        activity_events: [],
+        activity_known_agents: []
       )
 
     case socket.assigns.live_action do
@@ -165,8 +167,11 @@ defmodule LoomkinWeb.WorkspaceLive do
     {:noreply, assign(socket, selected_file: nil, file_content: nil)}
   end
 
-
-  def handle_event("permission_response", %{"action" => action, "tool_name" => tool_name, "tool_path" => tool_path}, socket) do
+  def handle_event(
+        "permission_response",
+        %{"action" => action, "tool_name" => tool_name, "tool_path" => tool_path},
+        socket
+      ) do
     route_permission_response(socket, action, tool_name, tool_path)
     {:noreply, assign(socket, permission_request: nil)}
   end
@@ -218,13 +223,24 @@ defmodule LoomkinWeb.WorkspaceLive do
     {:noreply, assign(socket, status: status)}
   end
 
-  def handle_info({:tool_executing, _source, %{tool_name: name, tool_target: target}}, socket) do
+  def handle_info({:tool_executing, _source, %{tool_name: name, tool_target: target}} = event, socket) do
     display = if target && target != "*", do: "#{name}: #{target}", else: name
-    {:noreply, assign(socket, current_tool: display, current_tool_name: name)}
+
+    socket =
+      socket
+      |> forward_to_activity(event)
+      |> assign(current_tool: display, current_tool_name: name)
+
+    {:noreply, socket}
   end
 
-  def handle_info({:tool_executing, _source, %{tool_name: name}}, socket) do
-    {:noreply, assign(socket, current_tool: name, current_tool_name: name)}
+  def handle_info({:tool_executing, _source, %{tool_name: name}} = event, socket) do
+    socket =
+      socket
+      |> forward_to_activity(event)
+      |> assign(current_tool: name, current_tool_name: name)
+
+    {:noreply, socket}
   end
 
   def handle_info({:tool_executing, _source, tool_name}, socket) when is_binary(tool_name) do
@@ -232,8 +248,13 @@ defmodule LoomkinWeb.WorkspaceLive do
   end
 
   # Team agent tool_complete (3-element tuple)
-  def handle_info({:tool_complete, _agent_name, %{tool_name: _name}}, socket) do
-    {:noreply, assign(socket, current_tool: nil)}
+  def handle_info({:tool_complete, _agent_name, %{tool_name: _name}} = event, socket) do
+    socket =
+      socket
+      |> forward_to_activity(event)
+      |> assign(current_tool: nil)
+
+    {:noreply, socket}
   end
 
   # Session tool_complete (4-element tuple with result)
@@ -267,12 +288,18 @@ defmodule LoomkinWeb.WorkspaceLive do
 
   # 5-tuple with source tag (from architect :session or {:agent, team_id, name})
   def handle_info({:permission_request, _id, tool_name, tool_path, source}, socket) do
-    {:noreply, assign(socket, permission_request: %{tool_name: tool_name, tool_path: tool_path, source: source})}
+    {:noreply,
+     assign(socket,
+       permission_request: %{tool_name: tool_name, tool_path: tool_path, source: source}
+     )}
   end
 
   # 4-tuple backwards compat (default to :session source)
   def handle_info({:permission_request, _session_id, tool_name, tool_path}, socket) do
-    {:noreply, assign(socket, permission_request: %{tool_name: tool_name, tool_path: tool_path, source: :session})}
+    {:noreply,
+     assign(socket,
+       permission_request: %{tool_name: tool_name, tool_path: tool_path, source: :session}
+     )}
   end
 
   def handle_info({:team_available, _session_id, team_id}, socket) do
@@ -376,20 +403,20 @@ defmodule LoomkinWeb.WorkspaceLive do
   end
 
   # Team PubSub events -- forward to team components via send_update
-  def handle_info({:agent_status, _agent_name, _status}, socket) do
+  def handle_info({:agent_status, _agent_name, _status} = event, socket) do
     forward_to_team_components(socket)
-    {:noreply, socket}
+    {:noreply, forward_to_activity(socket, event)}
   end
 
-  def handle_info({:task_assigned, _task_id, _agent_name}, socket) do
+  def handle_info({:task_assigned, _task_id, _agent_name} = event, socket) do
     forward_to_dashboard(socket)
-    {:noreply, socket}
+    {:noreply, forward_to_activity(socket, event)}
   end
 
-  def handle_info({:task_completed, _task_id, _agent_name, _result}, socket) do
+  def handle_info({:task_completed, _task_id, _agent_name, _result} = event, socket) do
     forward_to_dashboard(socket)
     forward_to_cost(socket)
-    {:noreply, socket}
+    {:noreply, forward_to_activity(socket, event)}
   end
 
   def handle_info({:task_started, _task_id, _owner}, socket) do
@@ -418,7 +445,7 @@ defmodule LoomkinWeb.WorkspaceLive do
     {:noreply, socket}
   end
 
-  # Agent streaming events — handled by TeamActivityComponent via its own PubSub subscription
+  # Agent streaming events — buffered for activity feed
   def handle_info({:agent_stream_start, _agent_name, _payload}, socket) do
     {:noreply, socket}
   end
@@ -427,8 +454,8 @@ defmodule LoomkinWeb.WorkspaceLive do
     {:noreply, socket}
   end
 
-  def handle_info({:agent_stream_end, _agent_name, _payload}, socket) do
-    {:noreply, socket}
+  def handle_info({:agent_stream_end, _agent_name, _payload} = event, socket) do
+    {:noreply, forward_to_activity(socket, event)}
   end
 
   def handle_info({:child_team_created, child_team_id}, socket) do
@@ -446,7 +473,8 @@ defmodule LoomkinWeb.WorkspaceLive do
 
   def handle_info({:team_dissolved, team_id}, socket) do
     if team_id == socket.assigns.team_id do
-      {:noreply, assign(socket, team_id: nil, child_teams: [], active_team_id: nil, active_tab: :files)}
+      {:noreply,
+       assign(socket, team_id: nil, child_teams: [], active_team_id: nil, active_tab: :files)}
     else
       child_teams = List.delete(socket.assigns.child_teams, team_id)
 
@@ -488,7 +516,10 @@ defmodule LoomkinWeb.WorkspaceLive do
           |> put_flash(:error, format_llm_error(reason))
 
         other ->
-          Logger.warning("[WorkspaceLive] Async task returned unexpected result: #{inspect(other)}")
+          Logger.warning(
+            "[WorkspaceLive] Async task returned unexpected result: #{inspect(other)}"
+          )
+
           socket
       end
 
@@ -501,6 +532,19 @@ defmodule LoomkinWeb.WorkspaceLive do
     end
 
     {:noreply, assign(socket, async_task: nil)}
+  end
+
+  # Team decision and context events — buffer for activity feed
+  def handle_info({:decision_logged, _node_id, _agent_name} = event, socket) do
+    {:noreply, forward_to_activity(socket, event)}
+  end
+
+  def handle_info({:context_update, _from_agent, _payload} = event, socket) do
+    {:noreply, forward_to_activity(socket, event)}
+  end
+
+  def handle_info({:context_offloaded, _agent_name, _payload} = event, socket) do
+    {:noreply, forward_to_activity(socket, event)}
   end
 
   # Catch-all for unhandled PubSub messages (team events, etc.)
@@ -528,14 +572,14 @@ defmodule LoomkinWeb.WorkspaceLive do
           <%!-- Branding --%>
           <div class="flex items-center gap-2">
             <svg class="w-7 h-7" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <polygon points="10,2 6,10 15,7" fill="#5B21B6"/>
-              <polygon points="22,2 26,10 17,7" fill="#5B21B6"/>
-              <polygon points="6,10 4,20 12,15" fill="#4B0082"/>
-              <polygon points="26,10 28,20 20,15" fill="#4B0082"/>
-              <polygon points="12,15 16,7 20,15" fill="#7C3AED"/>
-              <polygon points="12,15 16,24 20,15" fill="#4B0082"/>
-              <circle cx="12" cy="14" r="3" fill="#F59E0B"/>
-              <circle cx="20" cy="14" r="3" fill="#F59E0B"/>
+              <polygon points="10,2 6,10 15,7" fill="#5B21B6" />
+              <polygon points="22,2 26,10 17,7" fill="#5B21B6" />
+              <polygon points="6,10 4,20 12,15" fill="#4B0082" />
+              <polygon points="26,10 28,20 20,15" fill="#4B0082" />
+              <polygon points="12,15 16,7 20,15" fill="#7C3AED" />
+              <polygon points="12,15 16,24 20,15" fill="#4B0082" />
+              <circle cx="12" cy="14" r="3" fill="#F59E0B" />
+              <circle cx="20" cy="14" r="3" fill="#F59E0B" />
             </svg>
             <span class="text-xl font-bold bg-gradient-to-r from-violet-400 to-purple-400 bg-clip-text text-transparent tracking-tight">
               Loomkin
@@ -543,7 +587,11 @@ defmodule LoomkinWeb.WorkspaceLive do
           </div>
 
           <%!-- Model selector --%>
-          <.live_component module={LoomkinWeb.ModelSelectorComponent} id="model-selector" model={@model} />
+          <.live_component
+            module={LoomkinWeb.ModelSelectorComponent}
+            id="model-selector"
+            model={@model}
+          />
         </div>
 
         <div class="flex items-center gap-3">
@@ -552,13 +600,22 @@ defmodule LoomkinWeb.WorkspaceLive do
             href="/dashboard"
             class="flex items-center gap-1.5 bg-gray-800/60 hover:bg-gray-800 rounded-full px-3 py-1.5 transition-colors group"
           >
-            <.icon name="hero-sparkles-mini" class="w-3.5 h-3.5 text-violet-400 group-hover:text-violet-300" />
+            <.icon
+              name="hero-sparkles-mini"
+              class="w-3.5 h-3.5 text-violet-400 group-hover:text-violet-300"
+            />
             <span class="text-xs font-mono text-gray-300">${format_cost(@session_cost)}</span>
-            <span class="text-[10px] text-gray-500 font-mono">{format_tokens(@session_tokens)} tok</span>
+            <span class="text-[10px] text-gray-500 font-mono">
+              {format_tokens(@session_tokens)} tok
+            </span>
           </a>
 
           <%!-- Session switcher --%>
-          <.live_component module={LoomkinWeb.SessionSwitcherComponent} id="session-switcher" session_id={@session_id} />
+          <.live_component
+            module={LoomkinWeb.SessionSwitcherComponent}
+            id="session-switcher"
+            session_id={@session_id}
+          />
 
           <%!-- Status indicator --%>
           <div class={"flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-300 " <> status_pill_class(@status)}>
@@ -605,8 +662,18 @@ defmodule LoomkinWeb.WorkspaceLive do
                   if(@status == :idle, do: "bg-violet-600 hover:bg-violet-500 text-white send-btn-ready", else: "bg-gray-800 text-gray-600 cursor-not-allowed")}
                 disabled={@status != :idle}
               >
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+                <svg
+                  class="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"
+                  />
                 </svg>
               </button>
               <button
@@ -621,7 +688,9 @@ defmodule LoomkinWeb.WorkspaceLive do
               </button>
             </div>
             <p class="text-[10px] text-gray-600 mt-1.5 pl-1">
-              <kbd class="px-1 py-0.5 bg-gray-800/60 rounded text-gray-500 font-mono text-[9px]">Shift+Enter</kbd>
+              <kbd class="px-1 py-0.5 bg-gray-800/60 rounded text-gray-500 font-mono text-[9px]">
+                Shift+Enter
+              </kbd>
               for new line
             </p>
           </form>
@@ -646,7 +715,11 @@ defmodule LoomkinWeb.WorkspaceLive do
           </div>
 
           <%!-- Sidebar content with transition --%>
-          <div class="flex-1 overflow-auto p-4 tab-content-enter" phx-hook="TabTransition" id={"tab-content-#{@active_tab}"}>
+          <div
+            class="flex-1 overflow-auto p-4 tab-content-enter"
+            phx-hook="TabTransition"
+            id={"tab-content-#{@active_tab}"}
+          >
             {render_tab(@active_tab, assigns)}
           </div>
         </div>
@@ -673,11 +746,20 @@ defmodule LoomkinWeb.WorkspaceLive do
   defp status_label(:executing_tool, tool_name), do: tool_name
   defp status_label(status, _tool), do: to_string(status)
 
-  defp tab_icon(:files), do: raw("<span class=\"hero-folder-mini inline-block w-3.5 h-3.5\"></span>")
-  defp tab_icon(:diff), do: raw("<span class=\"hero-code-bracket-mini inline-block w-3.5 h-3.5\"></span>")
-  defp tab_icon(:terminal), do: raw("<span class=\"hero-command-line-mini inline-block w-3.5 h-3.5\"></span>")
-  defp tab_icon(:graph), do: raw("<span class=\"hero-share-mini inline-block w-3.5 h-3.5\"></span>")
-  defp tab_icon(:team), do: raw("<span class=\"hero-user-group-mini inline-block w-3.5 h-3.5\"></span>")
+  defp tab_icon(:files),
+    do: raw("<span class=\"hero-folder-mini inline-block w-3.5 h-3.5\"></span>")
+
+  defp tab_icon(:diff),
+    do: raw("<span class=\"hero-code-bracket-mini inline-block w-3.5 h-3.5\"></span>")
+
+  defp tab_icon(:terminal),
+    do: raw("<span class=\"hero-command-line-mini inline-block w-3.5 h-3.5\"></span>")
+
+  defp tab_icon(:graph),
+    do: raw("<span class=\"hero-share-mini inline-block w-3.5 h-3.5\"></span>")
+
+  defp tab_icon(:team),
+    do: raw("<span class=\"hero-user-group-mini inline-block w-3.5 h-3.5\"></span>")
 
   defp tab_label(:files), do: "Files"
   defp tab_label(:diff), do: "Diff"
@@ -753,7 +835,10 @@ defmodule LoomkinWeb.WorkspaceLive do
     ~H"""
     <div class="flex flex-col h-full gap-3">
       <%!-- Team switcher (visible when child teams exist) --%>
-      <div :if={@child_teams != []} class="flex items-center gap-1 flex-wrap border-b border-gray-800 pb-2">
+      <div
+        :if={@child_teams != []}
+        class="flex items-center gap-1 flex-wrap border-b border-gray-800 pb-2"
+      >
         <button
           phx-click="switch_team"
           phx-value-team-id={@team_id}
@@ -797,7 +882,19 @@ defmodule LoomkinWeb.WorkspaceLive do
         </button>
       </div>
 
-      <div class="flex-1 overflow-auto">
+      <%!-- Activity feed: always mounted, hidden when not selected --%>
+      <div class={if @team_sub_tab == :activity, do: "flex-1 overflow-auto", else: "hidden"}>
+        <.live_component
+          module={LoomkinWeb.TeamActivityComponent}
+          id="team-activity"
+          team_id={@display_team_id}
+          events={@activity_events}
+          known_agents={@activity_known_agents}
+        />
+      </div>
+
+      <%!-- Other sub-tab content --%>
+      <div :if={@team_sub_tab != :activity} class="flex-1 overflow-auto">
         {render_team_sub_tab(@team_sub_tab, assigns)}
       </div>
     </div>
@@ -807,16 +904,6 @@ defmodule LoomkinWeb.WorkspaceLive do
   defp team_sub_tab_label(:activity), do: "Activity"
   defp team_sub_tab_label(:cost), do: "Cost"
   defp team_sub_tab_label(:graph), do: "Graph"
-
-  defp render_team_sub_tab(:activity, assigns) do
-    ~H"""
-    <.live_component
-      module={LoomkinWeb.TeamActivityComponent}
-      id="team-activity"
-      team_id={@display_team_id}
-    />
-    """
-  end
 
   defp render_team_sub_tab(:cost, assigns) do
     ~H"""
@@ -856,21 +943,111 @@ defmodule LoomkinWeb.WorkspaceLive do
     Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{team_id}:tasks")
   end
 
+  @max_activity_events 200
+
+  defp forward_to_activity(socket, pubsub_event) do
+    case activity_event_from(pubsub_event) do
+      nil ->
+        socket
+
+      event ->
+        events = socket.assigns.activity_events ++ [event]
+
+        events =
+          if length(events) > @max_activity_events,
+            do: Enum.drop(events, length(events) - @max_activity_events),
+            else: events
+
+        agents = socket.assigns.activity_known_agents
+        agents = if event.agent in agents, do: agents, else: agents ++ [event.agent]
+
+        assign(socket, activity_events: events, activity_known_agents: agents)
+    end
+  end
+
+  defp activity_event_from({:tool_executing, agent, %{tool_name: name, tool_target: target}}) do
+    display = if target && target != "*", do: "#{name} on #{target}", else: name
+    %{id: Ecto.UUID.generate(), type: :tool_call, agent: agent, content: "used #{display}", timestamp: DateTime.utc_now(), expanded: false}
+  end
+
+  defp activity_event_from({:tool_complete, agent, %{tool_name: name, result: result}}) do
+    truncated = String.slice(to_string(result), 0, 200)
+    %{id: Ecto.UUID.generate(), type: :tool_call, agent: agent, content: "#{name} done: #{truncated}", timestamp: DateTime.utc_now(), expanded: false}
+  end
+
+  defp activity_event_from({:agent_status, agent, status}) do
+    {type, content} =
+      case status do
+        :idle -> {:message, "is now idle"}
+        :working -> {:message, "started working"}
+        :blocked -> {:message, "is blocked"}
+        :error -> {:error, "encountered an error"}
+        _ -> {:message, "status: #{status}"}
+      end
+
+    %{id: Ecto.UUID.generate(), type: type, agent: agent, content: content, timestamp: DateTime.utc_now(), expanded: false}
+  end
+
+  defp activity_event_from({:task_assigned, task_id, agent}) do
+    %{id: Ecto.UUID.generate(), type: :task_assigned, agent: agent, content: "picked up task #{task_id}", timestamp: DateTime.utc_now(), expanded: false}
+  end
+
+  defp activity_event_from({:task_completed, task_id, agent, result}) do
+    content =
+      case result do
+        r when is_binary(r) -> "completed task #{task_id}: #{String.slice(r, 0, 200)}"
+        _ -> "completed task #{task_id}"
+      end
+
+    %{id: Ecto.UUID.generate(), type: :task_complete, agent: agent, content: content, timestamp: DateTime.utc_now(), expanded: false}
+  end
+
+  defp activity_event_from({:decision_logged, node_id, agent}) do
+    %{id: Ecto.UUID.generate(), type: :decision, agent: agent, content: "logged decision #{node_id}", timestamp: DateTime.utc_now(), expanded: false}
+  end
+
+  defp activity_event_from({:context_update, agent, payload}) do
+    content =
+      case payload do
+        %{type: :discovery, content: c} -> c
+        %{content: c} -> c
+        _ -> inspect(payload)
+      end
+
+    %{id: Ecto.UUID.generate(), type: :discovery, agent: agent, content: content, timestamp: DateTime.utc_now(), expanded: false}
+  end
+
+  defp activity_event_from({:context_offloaded, agent, _payload}) do
+    %{id: Ecto.UUID.generate(), type: :discovery, agent: agent, content: "offloaded context to keeper", timestamp: DateTime.utc_now(), expanded: false}
+  end
+
+  defp activity_event_from({:agent_stream_end, agent, _payload}) do
+    %{id: Ecto.UUID.generate(), type: :thinking, agent: agent, content: "finished thinking", timestamp: DateTime.utc_now(), expanded: false}
+  end
+
+  defp activity_event_from(_), do: nil
+
   defp forward_to_team_components(socket) do
     forward_to_dashboard(socket)
-    tid = socket.assigns[:active_team_id] || socket.assigns[:team_id]
-    if tid, do: send_update(LoomkinWeb.TeamActivityComponent, id: "team-activity", team_id: tid)
   end
 
   defp forward_to_dashboard(socket) do
     tid = socket.assigns[:active_team_id] || socket.assigns[:team_id]
-    if tid, do: send_update(LoomkinWeb.TeamDashboardComponent, id: "team-dashboard", team_id: tid)
+
+    if tid && team_tab_visible?(socket) do
+      send_update(LoomkinWeb.TeamDashboardComponent, id: "team-dashboard", team_id: tid)
+    end
   end
 
   defp forward_to_cost(socket) do
     tid = socket.assigns[:active_team_id] || socket.assigns[:team_id]
-    if tid, do: send_update(LoomkinWeb.TeamCostComponent, id: "team-cost", team_id: tid)
+
+    if tid && team_tab_visible?(socket) && socket.assigns[:team_sub_tab] == :cost do
+      send_update(LoomkinWeb.TeamCostComponent, id: "team-cost", team_id: tid)
+    end
   end
+
+  defp team_tab_visible?(socket), do: socket.assigns[:active_tab] == :team
 
   defp short_team_id(id) when is_binary(id), do: String.slice(id, 0, 8)
   defp short_team_id(_), do: "?"

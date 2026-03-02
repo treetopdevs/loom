@@ -43,6 +43,30 @@ defmodule Loomkin.Permissions.Manager do
   end
 
   @doc """
+  Boundary-aware permission check. For read tools accessing paths outside
+  the project directory, requires explicit user permission instead of
+  auto-approving.
+
+  Returns `:allowed` or `:ask`.
+  """
+  def check(tool_name, path, session_id, project_path) when is_binary(project_path) do
+    resolved = Loomkin.Tool.resolve_path(path, project_path)
+
+    if tool_category(tool_name) in [:read] and
+         Loomkin.Tool.outside_project?(resolved, project_path) do
+      # Out-of-project read — check for an existing scoped grant
+      if has_grant?(tool_name, resolved, session_id) do
+        :allowed
+      else
+        :ask
+      end
+    else
+      # In-project or non-read tool — delegate to standard check
+      check(tool_name, path, session_id)
+    end
+  end
+
+  @doc """
   Store a permission grant for a tool in the given scope and session.
   """
   def grant(tool_name, scope, session_id) do
@@ -82,13 +106,28 @@ defmodule Loomkin.Permissions.Manager do
   # --- Private ---
 
   defp has_grant?(tool_name, path, session_id) do
-    query =
+    # Check for exact match, wildcard, or directory-prefix grants.
+    # Directory-prefix grants are stored as "/path/to/dir/" (trailing slash)
+    # and match any path under that directory.
+    exact_query =
       from g in PermissionGrant,
         where: g.session_id == ^session_id,
         where: g.tool == ^tool_name,
         where: g.scope == "*" or g.scope == ^path,
         limit: 1
 
-    Repo.exists?(query)
+    if Repo.exists?(exact_query) do
+      true
+    else
+      # Check directory-prefix grants — scope ends with "/" and path starts with it
+      prefix_query =
+        from g in PermissionGrant,
+          where: g.session_id == ^session_id,
+          where: g.tool == ^tool_name,
+          where: fragment("? LIKE '%/' AND ? LIKE ? || '%'", g.scope, ^path, g.scope),
+          limit: 1
+
+      Repo.exists?(prefix_query)
+    end
   end
 end

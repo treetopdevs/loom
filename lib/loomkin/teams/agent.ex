@@ -237,14 +237,15 @@ defmodule Loomkin.Teams.Agent do
   end
 
   @impl true
-  def handle_cast({:permission_response, action, tool_name, _tool_path}, state) do
+  def handle_cast({:permission_response, action, tool_name, tool_path}, state) do
     case state.pending_permission do
       nil ->
         {:noreply, state}
 
       pending_info ->
         if action == "allow_always" do
-          Loomkin.Permissions.Manager.grant(to_string(tool_name), "*", state.team_id)
+          # Store grant with the actual resolved path, not wildcard
+          Loomkin.Permissions.Manager.grant(to_string(tool_name), tool_path, state.team_id)
         end
 
         # Resume in a task to avoid blocking the GenServer
@@ -738,7 +739,6 @@ defmodule Loomkin.Teams.Agent do
         model: model,
         tools: [],
         system_prompt: "You are participating in a structured debate. Respond concisely.",
-        max_iterations: 1,
         project_path: state.project_path
       ]
 
@@ -814,7 +814,6 @@ defmodule Loomkin.Teams.Agent do
       model: state.model,
       tools: state.tools,
       system_prompt: system_prompt,
-      max_iterations: state.role_config.max_iterations,
       project_path: state.project_path,
       agent_name: state.name,
       team_id: state.team_id,
@@ -846,11 +845,33 @@ defmodule Loomkin.Teams.Agent do
 
   defp build_permission_callback(%{permission_mode: :auto}), do: nil
 
-  defp build_permission_callback(%{permission_mode: :session, team_id: team_id, name: name}) do
+  defp build_permission_callback(%{
+         permission_mode: :session,
+         team_id: team_id,
+         name: name,
+         project_path: project_path
+       }) do
     agent_name = name
 
     fn tool_name, tool_path ->
-      case Loomkin.Permissions.Manager.check(to_string(tool_name), tool_path, team_id) do
+      tool_name_str = to_string(tool_name)
+
+      # Resolve path to absolute for display and permission checking
+      resolved_path =
+        if project_path do
+          Loomkin.Tool.resolve_path(tool_path, project_path)
+        else
+          tool_path
+        end
+
+      check_result =
+        if project_path do
+          Loomkin.Permissions.Manager.check(tool_name_str, tool_path, team_id, project_path)
+        else
+          Loomkin.Permissions.Manager.check(tool_name_str, tool_path, team_id)
+        end
+
+      case check_result do
         :allowed ->
           :allowed
 
@@ -858,11 +879,11 @@ defmodule Loomkin.Teams.Agent do
           Phoenix.PubSub.broadcast(
             Loomkin.PubSub,
             "team:#{team_id}",
-            {:permission_request, team_id, to_string(tool_name), tool_path,
+            {:permission_request, team_id, tool_name_str, resolved_path,
              {:agent, team_id, agent_name}}
           )
 
-          {:pending, %{tool_name: to_string(tool_name), tool_path: tool_path}}
+          {:pending, %{tool_name: tool_name_str, tool_path: resolved_path}}
       end
     end
   end

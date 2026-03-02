@@ -1,7 +1,13 @@
 defmodule LoomkinWeb.TeamActivityComponent do
-  use LoomkinWeb, :live_component
+  @moduledoc """
+  Real-time activity feed for team agents.
 
-  @max_events 200
+  Events are buffered in the parent LiveView (workspace_live) and passed
+  as assigns. This ensures events survive tab switches — the component
+  can unmount and remount without losing history.
+  """
+
+  use LoomkinWeb, :live_component
 
   @agent_colors [
     "#818cf8",
@@ -30,126 +36,23 @@ defmodule LoomkinWeb.TeamActivityComponent do
     {:ok,
      assign(socket,
        events: [],
-       agent_filter: nil,
-       type_filter: MapSet.new(),
        known_agents: [],
-       streaming_agents: %{},
-       subscribed: false
+       agent_filter: nil,
+       type_filter: MapSet.new()
      )}
   end
 
   @impl true
-  def update(%{team_id: team_id} = assigns, socket) do
-    if connected?(socket) && !socket.assigns[:subscribed] do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{team_id}")
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{team_id}:tasks")
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{team_id}:decisions")
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{team_id}:context")
-    end
+  def update(assigns, socket) do
+    # Events and known_agents come from parent LiveView's buffer
+    socket =
+      socket
+      |> assign(:team_id, assigns[:team_id])
+      |> assign(:id, assigns[:id])
+      |> assign(:events, assigns[:events] || socket.assigns.events)
+      |> assign(:known_agents, assigns[:known_agents] || socket.assigns.known_agents)
 
-    {:ok,
-     socket
-     |> assign(assigns)
-     |> assign(:subscribed, true)}
-  end
-
-  # --- PubSub Handlers ---
-
-  def handle_info({:agent_status, agent_name, status}, socket) do
-    type =
-      case status do
-        :error -> :error
-        _ -> :message
-      end
-
-    content =
-      case status do
-        :idle -> "#{agent_name} is now idle"
-        :working -> "#{agent_name} started working"
-        :blocked -> "#{agent_name} is blocked"
-        :error -> "#{agent_name} encountered an error"
-      end
-
-    event = build_event(type, agent_name, content)
-    {:noreply, append_event(socket, event)}
-  end
-
-  def handle_info({:context_update, from_agent, %{type: :discovery, content: content}}, socket) do
-    event = build_event(:discovery, from_agent, content)
-    {:noreply, append_event(socket, event)}
-  end
-
-  def handle_info({:context_update, from_agent, payload}, socket) do
-    content = Map.get(payload, :content, inspect(payload))
-    event = build_event(:discovery, from_agent, content)
-    {:noreply, append_event(socket, event)}
-  end
-
-  def handle_info({:task_assigned, task_id, agent_name}, socket) do
-    event = build_event(:task_assigned, agent_name, "picked up task #{task_id}")
-    {:noreply, append_event(socket, event)}
-  end
-
-  def handle_info({:task_completed, task_id, agent_name, result}, socket) do
-    content =
-      case result do
-        result when is_binary(result) -> "completed task #{task_id}: #{result}"
-        _ -> "completed task #{task_id}"
-      end
-
-    event = build_event(:task_complete, agent_name, content)
-    {:noreply, append_event(socket, event)}
-  end
-
-  def handle_info({:decision_logged, node_id, agent_name}, socket) do
-    event = build_event(:decision, agent_name, "logged decision #{node_id}")
-    {:noreply, append_event(socket, event)}
-  end
-
-  def handle_info({:tool_call, agent_name, tool_name, target}, socket) do
-    content = "used #{tool_name} on #{target}"
-    event = build_event(:tool_call, agent_name, content)
-    {:noreply, append_event(socket, event)}
-  end
-
-  def handle_info({:agent_message, from_agent, to_agent, content}, socket) do
-    event = build_event(:message, from_agent, "to #{to_agent}: #{content}")
-    {:noreply, append_event(socket, event)}
-  end
-
-  def handle_info({:agent_stream_start, agent_name, _payload}, socket) do
-    streaming = Map.put(socket.assigns.streaming_agents, agent_name, "")
-    {:noreply, assign(socket, streaming_agents: streaming)}
-  end
-
-  def handle_info({:agent_stream_delta, agent_name, %{text: chunk}}, socket) do
-    streaming =
-      Map.update(
-        socket.assigns.streaming_agents,
-        agent_name,
-        chunk,
-        &(&1 <> chunk)
-      )
-
-    {:noreply, assign(socket, streaming_agents: streaming)}
-  end
-
-  def handle_info({:agent_stream_end, agent_name, _payload}, socket) do
-    text = Map.get(socket.assigns.streaming_agents, agent_name, "")
-    streaming = Map.delete(socket.assigns.streaming_agents, agent_name)
-
-    socket = assign(socket, streaming_agents: streaming)
-
-    if String.length(text) > 0 do
-      event = build_event(:thinking, agent_name, text)
-      {:noreply, append_event(socket, event)}
-    else
-      {:noreply, socket}
-    end
-  end
-
-  def handle_info(_msg, socket) do
-    {:noreply, socket}
+    {:ok, socket}
   end
 
   # --- UI Event Handlers ---
@@ -232,25 +135,6 @@ defmodule LoomkinWeb.TeamActivityComponent do
         </button>
       </div>
 
-      <!-- Active Streams -->
-      <div
-        :for={{agent_name, text} <- @streaming_agents}
-        :if={text != ""}
-        class="px-2 py-1.5 bg-indigo-900/20 border-b border-indigo-500/10 animate-fade-in"
-      >
-        <div class="flex items-center gap-2">
-          <span
-            class="w-2 h-2 rounded-full flex-shrink-0 animate-pulse"
-            style={"background-color: #{agent_color(agent_name)}"}
-          ></span>
-          <span class="text-xs font-medium text-indigo-300">{agent_name}</span>
-          <span class="text-xs text-indigo-400/60">thinking...</span>
-        </div>
-        <p class="text-xs text-gray-400 mt-1 truncate max-w-full">
-          {String.slice(text, -120, 120)}
-        </p>
-      </div>
-
       <!-- Event Feed -->
       <div class="flex-1 overflow-auto" id={"activity-feed-#{@id}"} phx-hook="ScrollToBottom">
         <div class="flex flex-col gap-0.5 p-2">
@@ -304,37 +188,6 @@ defmodule LoomkinWeb.TeamActivityComponent do
   end
 
   # --- Helpers ---
-
-  defp build_event(type, agent_name, content) do
-    %{
-      id: Ecto.UUID.generate(),
-      type: type,
-      agent: agent_name,
-      content: content,
-      timestamp: DateTime.utc_now(),
-      expanded: false
-    }
-  end
-
-  defp append_event(socket, event) do
-    events = socket.assigns.events ++ [event]
-
-    events =
-      if length(events) > @max_events do
-        Enum.drop(events, length(events) - @max_events)
-      else
-        events
-      end
-
-    known_agents =
-      if event.agent in socket.assigns.known_agents do
-        socket.assigns.known_agents
-      else
-        socket.assigns.known_agents ++ [event.agent]
-      end
-
-    assign(socket, events: events, known_agents: known_agents)
-  end
 
   defp filtered_events(assigns) do
     events = assigns.events

@@ -56,6 +56,28 @@ defmodule Loomkin.Tool do
     end)
   end
 
+  @doc """
+  Resolves a file path relative to the project path without enforcing boundaries.
+
+  Returns the fully resolved absolute path (with symlinks resolved).
+  """
+  @spec resolve_path(String.t(), String.t()) :: String.t()
+  def resolve_path(file_path, project_path) do
+    expanded = Path.expand(file_path, project_path)
+    resolve_real(expanded)
+  end
+
+  @doc """
+  Returns true if the resolved path is outside the project directory.
+  """
+  @spec outside_project?(String.t(), String.t()) :: boolean()
+  def outside_project?(resolved_path, project_path) do
+    project_root = resolve_real(Path.expand(project_path))
+
+    not (resolved_path == project_root or
+           String.starts_with?(resolved_path, project_root <> "/"))
+  end
+
   @doc "Fetches a param by key, trying atom key first then string key."
   @spec param!(map(), atom()) :: any()
   def param!(params, key) when is_atom(key) do

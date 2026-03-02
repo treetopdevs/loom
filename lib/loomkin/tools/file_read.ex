@@ -5,9 +5,14 @@ defmodule Loomkin.Tools.FileRead do
     name: "file_read",
     description:
       "Reads a file from the project. Returns contents formatted with line numbers. " <>
-        "Use offset and limit to read specific sections of large files.",
+        "Use offset and limit to read specific sections of large files. " <>
+        "For directories, use directory_list.",
     schema: [
-      file_path: [type: :string, required: true, doc: "Path to the file (relative to project root)"],
+      file_path: [
+        type: :string,
+        required: true,
+        doc: "Path to the file (relative to project root)"
+      ],
       offset: [type: :integer, doc: "Line number to start reading from (1-based)"],
       limit: [type: :integer, doc: "Maximum number of lines to return"]
     ]
@@ -21,7 +26,22 @@ defmodule Loomkin.Tools.FileRead do
     offset = param(params, :offset)
     limit = param(params, :limit)
 
-    full_path = safe_path!(file_path, project_path)
+    # Bypass safe_path! for permitted external reads (approved via permission system)
+    full_path =
+      case Map.get(context, :allowed_external_path) do
+        nil ->
+          safe_path!(file_path, project_path)
+
+        allowed_path ->
+          resolved = Loomkin.Tool.resolve_path(file_path, project_path)
+
+          if resolved == allowed_path do
+            resolved
+          else
+            # Resolved path doesn't match what was approved — fall back to safe_path!
+            safe_path!(file_path, project_path)
+          end
+      end
 
     case File.read(full_path) do
       {:ok, content} ->
@@ -52,12 +72,29 @@ defmodule Loomkin.Tools.FileRead do
         {:error, "File not found: #{full_path}"}
 
       {:error, :eisdir} ->
-        {:error, "Path is a directory, not a file: #{full_path}"}
+        rel_path = Path.relative_to(full_path, project_path)
+
+        {:ok,
+         %{
+           result:
+             "Path is a directory, not a file: #{full_path}\n" <>
+               "Use directory_list with path: #{rel_path}"
+         }}
 
       {:error, reason} ->
         {:error, "Failed to read #{full_path}: #{reason}"}
     end
   rescue
-    e in ArgumentError -> {:error, e.message}
+    e in ArgumentError ->
+      if String.contains?(e.message, "outside the project directory") do
+        {:ok,
+         %{
+           result:
+             "#{e.message}\n" <>
+               "Use a path relative to the project root or move the file into this project."
+         }}
+      else
+        {:error, e.message}
+      end
   end
 end
