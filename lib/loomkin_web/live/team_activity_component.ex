@@ -31,23 +31,23 @@ defmodule LoomkinWeb.TeamActivityComponent do
   ]
 
   @type_config %{
-    tool_call: %{label: "tool", icon: "&#9881;", bg: "bg-violet-400/20", text: "text-violet-400", border: "border-violet-500/40", card_bg: "bg-gray-900/50"},
-    message: %{label: "message", icon: "&#9993;", bg: "bg-emerald-400/20", text: "text-emerald-400", border: "border-emerald-500/40", card_bg: "bg-gray-900/50"},
-    decision: %{label: "decision", icon: "&#129504;", bg: "bg-purple-400/20", text: "text-purple-400", border: "border-purple-500/40", card_bg: "bg-gray-900/50"},
-    task_created: %{label: "created", icon: "&#10010;", bg: "bg-cyan-400/20", text: "text-cyan-400", border: "border-cyan-500/40", card_bg: "bg-gray-900/50"},
-    task_assigned: %{label: "assigned", icon: "&#10132;", bg: "bg-blue-400/20", text: "text-blue-400", border: "border-blue-500/40", card_bg: "bg-gray-900/50"},
-    task_started: %{label: "started", icon: "&#9654;", bg: "bg-violet-400/20", text: "text-violet-400", border: "border-violet-500/40", card_bg: "bg-gray-900/50"},
-    task_complete: %{label: "done", icon: "&#10004;", bg: "bg-green-400/20", text: "text-green-400", border: "border-green-500/40", card_bg: "bg-green-950/20"},
-    task_failed: %{label: "failed", icon: "&#10006;", bg: "bg-red-400/20", text: "text-red-400", border: "border-red-500/40", card_bg: "bg-red-950/20"},
-    discovery: %{label: "discovery", icon: "&#11088;", bg: "bg-yellow-400/20", text: "text-yellow-400", border: "border-yellow-500/40", card_bg: "bg-yellow-950/10"},
-    error: %{label: "error", icon: "&#9888;", bg: "bg-red-400/20", text: "text-red-400", border: "border-red-500/40", card_bg: "bg-red-950/30"},
-    thinking: %{label: "thinking", icon: "&#8230;", bg: "bg-indigo-400/20", text: "text-indigo-400", border: "border-indigo-500/40", card_bg: "bg-gray-900/50"},
-    streaming: %{label: "thinking", icon: "&#8230;", bg: "bg-indigo-400/20", text: "text-indigo-400", border: "border-indigo-500/40", card_bg: "bg-gray-900/50"},
-    agent_spawn: %{label: "joined", icon: "&#10035;", bg: "bg-teal-400/20", text: "text-teal-400", border: "border-teal-500/40", card_bg: "bg-teal-500/5"},
-    context_offload: %{label: "offload", icon: "&#128230;", bg: "bg-amber-400/20", text: "text-amber-400", border: "border-amber-500/40", card_bg: "bg-gray-900/50"},
-    question: %{label: "question", icon: "&#10068;", bg: "bg-sky-400/20", text: "text-sky-400", border: "border-sky-500/40", card_bg: "bg-sky-950/15"},
-    answer: %{label: "answer", icon: "&#10069;", bg: "bg-sky-400/20", text: "text-sky-400", border: "border-sky-500/40", card_bg: "bg-gray-900/50"},
-    channel_message: %{label: "channel", icon: "&#128172;", bg: "bg-cyan-400/20", text: "text-cyan-400", border: "border-cyan-500/40", card_bg: "bg-gray-900/50"}
+    tool_call: %{label: "tool", icon: "&#9881;", accent: "#818cf8", accent_bg: "rgba(129, 140, 248, 0.10)", accent_border: "rgba(129, 140, 248, 0.35)", accent_text: "#a5b4fc", dot_color: "#818cf8"},
+    message: %{label: "message", icon: "&#9993;", accent: "#34d399", accent_bg: "rgba(52, 211, 153, 0.08)", accent_border: "rgba(52, 211, 153, 0.30)", accent_text: "#6ee7b7", dot_color: "#34d399"},
+    decision: %{label: "decision", icon: "&#129504;", accent: "#a78bfa", accent_bg: "rgba(167, 139, 250, 0.10)", accent_border: "rgba(167, 139, 250, 0.35)", accent_text: "#c4b5fd", dot_color: "#a78bfa"},
+    task_created: %{label: "created", icon: "&#10010;", accent: "#22d3ee", accent_bg: "rgba(34, 211, 238, 0.08)", accent_border: "rgba(34, 211, 238, 0.30)", accent_text: "#67e8f9", dot_color: "#22d3ee"},
+    task_assigned: %{label: "assigned", icon: "&#10132;", accent: "#60a5fa", accent_bg: "rgba(96, 165, 250, 0.08)", accent_border: "rgba(96, 165, 250, 0.30)", accent_text: "#93bbfd", dot_color: "#60a5fa"},
+    task_started: %{label: "started", icon: "&#9654;", accent: "#818cf8", accent_bg: "rgba(129, 140, 248, 0.08)", accent_border: "rgba(129, 140, 248, 0.30)", accent_text: "#a5b4fc", dot_color: "#818cf8"},
+    task_complete: %{label: "done", icon: "&#10004;", accent: "#4ade80", accent_bg: "rgba(74, 222, 128, 0.08)", accent_border: "rgba(74, 222, 128, 0.30)", accent_text: "#86efac", dot_color: "#4ade80"},
+    task_failed: %{label: "failed", icon: "&#10006;", accent: "#f87171", accent_bg: "rgba(248, 113, 113, 0.10)", accent_border: "rgba(248, 113, 113, 0.35)", accent_text: "#fca5a5", dot_color: "#f87171"},
+    discovery: %{label: "discovery", icon: "&#11088;", accent: "#fbbf24", accent_bg: "rgba(251, 191, 36, 0.08)", accent_border: "rgba(251, 191, 36, 0.30)", accent_text: "#fcd34d", dot_color: "#fbbf24"},
+    error: %{label: "error", icon: "&#9888;", accent: "#f87171", accent_bg: "rgba(248, 113, 113, 0.10)", accent_border: "rgba(248, 113, 113, 0.35)", accent_text: "#fca5a5", dot_color: "#f87171"},
+    thinking: %{label: "thinking", icon: "&#8230;", accent: "#818cf8", accent_bg: "rgba(129, 140, 248, 0.06)", accent_border: "rgba(129, 140, 248, 0.20)", accent_text: "#a5b4fc", dot_color: "#818cf8"},
+    streaming: %{label: "thinking", icon: "&#8230;", accent: "#818cf8", accent_bg: "rgba(129, 140, 248, 0.06)", accent_border: "rgba(129, 140, 248, 0.20)", accent_text: "#a5b4fc", dot_color: "#818cf8"},
+    agent_spawn: %{label: "joined", icon: "&#10035;", accent: "#2dd4bf", accent_bg: "rgba(45, 212, 191, 0.06)", accent_border: "rgba(45, 212, 191, 0.25)", accent_text: "#5eead4", dot_color: "#2dd4bf"},
+    context_offload: %{label: "offload", icon: "&#128230;", accent: "#f59e0b", accent_bg: "rgba(245, 158, 11, 0.08)", accent_border: "rgba(245, 158, 11, 0.25)", accent_text: "#fcd34d", dot_color: "#f59e0b"},
+    question: %{label: "question", icon: "&#10068;", accent: "#38bdf8", accent_bg: "rgba(56, 189, 248, 0.10)", accent_border: "rgba(56, 189, 248, 0.35)", accent_text: "#7dd3fc", dot_color: "#38bdf8"},
+    answer: %{label: "answer", icon: "&#10069;", accent: "#38bdf8", accent_bg: "rgba(56, 189, 248, 0.08)", accent_border: "rgba(56, 189, 248, 0.25)", accent_text: "#7dd3fc", dot_color: "#38bdf8"},
+    channel_message: %{label: "channel", icon: "&#128172;", accent: "#22d3ee", accent_bg: "rgba(34, 211, 238, 0.08)", accent_border: "rgba(34, 211, 238, 0.25)", accent_text: "#67e8f9", dot_color: "#22d3ee"}
   }
 
   @impl true
@@ -143,16 +143,17 @@ defmodule LoomkinWeb.TeamActivityComponent do
     assigns = assign(assigns, :filtered_events, filtered_events(assigns))
 
     ~H"""
-    <div class="flex flex-col h-full bg-gray-950">
+    <div class="flex flex-col h-full" style="background: var(--surface-0);">
       <%!-- Filter Bar --%>
-      <div class="flex flex-col border-b border-gray-800">
-        <%!-- Agent Filters — scrollable on narrow viewports --%>
-        <div class="flex items-center gap-1 px-3 py-1.5 overflow-x-auto scrollbar-thin">
+      <div class="glass-subtle flex flex-col" style="border-bottom: 1px solid var(--border-subtle);">
+        <%!-- Agent Filters --%>
+        <div class="flex items-center gap-1.5 px-3 py-2 overflow-x-auto scrollbar-thin">
           <button
             phx-click="filter_agent"
             phx-value-agent=""
             phx-target={@myself}
-            class={"text-xs px-2 py-0.5 rounded-full font-medium transition flex-shrink-0 #{if @agent_filter == nil, do: "bg-violet-600 text-white", else: "bg-gray-800 text-gray-400 hover:text-gray-200"}"}
+            class="press-down flex-shrink-0"
+            style={"display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 500; transition: all 200ms; #{if @agent_filter == nil, do: "background: var(--brand-subtle); color: var(--text-brand); border: 1px solid var(--border-brand);", else: "background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border-subtle);"}"}
           >
             All
           </button>
@@ -161,22 +162,34 @@ defmodule LoomkinWeb.TeamActivityComponent do
             phx-click="filter_agent"
             phx-value-agent={agent}
             phx-target={@myself}
-            class={"flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium transition flex-shrink-0 #{if @agent_filter == agent, do: "bg-gray-700 text-white ring-1 ring-gray-600", else: "bg-gray-800 text-gray-400 hover:text-gray-200"}"}
+            class="press-down flex-shrink-0"
+            style={"display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 500; transition: all 200ms; #{if @agent_filter == agent, do: "background: #{agent_color(agent)}18; color: #{agent_color(agent)}; border: 1px solid #{agent_color(agent)}40;", else: "background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border-subtle);"}"}
           >
-            <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style={"background-color: #{agent_color(agent)}"}></span>
+            <span
+              class="flex-shrink-0"
+              style={"width: 6px; height: 6px; border-radius: 9999px; background-color: #{agent_color(agent)};"}
+            ></span>
             {agent}
           </button>
         </div>
 
-        <%!-- Type Filters — scrollable on narrow viewports --%>
-        <div class="flex items-center gap-1 px-3 py-1 border-t border-gray-800/50 overflow-x-auto scrollbar-thin">
+        <%!-- Type Filters --%>
+        <div
+          class="flex items-center gap-1.5 px-3 py-1.5 overflow-x-auto scrollbar-thin"
+          style="border-top: 1px solid var(--border-subtle);"
+        >
           <button
             :for={{type, config} <- type_config_list()}
             phx-click="toggle_type"
             phx-value-type={type}
             phx-target={@myself}
-            class={"text-xs px-1.5 py-0.5 rounded-full font-medium transition flex-shrink-0 #{if MapSet.size(@type_filter) > 0 && !MapSet.member?(@type_filter, type), do: "opacity-30", else: ""} #{config.bg} #{config.text}"}
+            class="press-down flex-shrink-0"
+            style={"display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px; font-size: 0.6875rem; font-weight: 500; transition: all 200ms; #{if MapSet.size(@type_filter) > 0 && !MapSet.member?(@type_filter, type), do: "opacity: 0.3;"} color: #{config.accent_text}; background: transparent; border: none;"}
           >
+            <span
+              class="flex-shrink-0"
+              style={"width: 6px; height: 6px; border-radius: 9999px; background-color: #{config.dot_color};"}
+            ></span>
             {config.label}
           </button>
         </div>
@@ -184,19 +197,19 @@ defmodule LoomkinWeb.TeamActivityComponent do
 
       <%!-- Event Feed --%>
       <div class="flex-1 overflow-auto" id={"activity-feed-#{@id}"} phx-hook="ScrollToBottom">
-        <div class="flex flex-col gap-1 p-2">
+        <div class="flex flex-col gap-1.5 p-2.5">
           <div
             :if={@filtered_events == []}
-            class="flex items-center justify-center h-48 text-gray-500"
+            class="flex items-center justify-center h-48"
           >
-            <div class="text-center space-y-2">
-              <div class="text-3xl opacity-50">&#9673;</div>
-              <p class="text-sm">No activity yet</p>
-              <p class="text-xs text-gray-600">Events will appear here as your team works</p>
+            <div class="text-center space-y-3">
+              <div class="text-muted" style="font-size: 2rem; opacity: 0.3;">&#9673;</div>
+              <p class="text-sm text-muted">No activity yet</p>
+              <p class="text-xs" style="color: var(--text-muted); opacity: 0.6;">Events will appear here as your team works</p>
             </div>
           </div>
 
-          <div :for={event <- @filtered_events}>
+          <div :for={event <- @filtered_events} class="activity-event-enter">
             {render_event_card(assigns, event)}
           </div>
         </div>
@@ -209,6 +222,7 @@ defmodule LoomkinWeb.TeamActivityComponent do
 
   # Tool call: icon + agent + tool badge + file target in header; result collapsed
   defp render_event_card(assigns, %{type: :tool_call} = event) do
+    config = @type_config.tool_call
     meta = Map.get(event, :metadata, %{})
     tool_name = meta[:tool_name] || extract_tool_name(event.content)
     file_path = meta[:file_path]
@@ -219,6 +233,7 @@ defmodule LoomkinWeb.TeamActivityComponent do
     assigns =
       assigns
       |> assign(:event, event)
+      |> assign(:config, config)
       |> assign(:tool_name, tool_name)
       |> assign(:file_path, file_path)
       |> assign(:result_preview, result_preview)
@@ -226,59 +241,71 @@ defmodule LoomkinWeb.TeamActivityComponent do
       |> assign(:expanded, expanded)
 
     ~H"""
-    <div class="rounded bg-gray-900/50 hover:bg-gray-900/80 transition border-l-2 border-violet-500/40 overflow-hidden">
-      <div class="flex items-center gap-1.5 px-2.5 py-1.5 min-w-0">
-        <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style={"background-color: #{agent_color(@event.agent)}"}></span>
+    <div
+      class="interactive overflow-hidden"
+      style={"background: var(--surface-2); border: 1px solid var(--border-subtle); border-left: 2px solid #{@config.accent}; border-radius: 0.5rem;"}
+    >
+      <div class="flex items-center gap-2 px-3 py-2 min-w-0">
+        <span class="flex-shrink-0" style={"width: 7px; height: 7px; border-radius: 9999px; background-color: #{agent_color(@event.agent)};"}></span>
         <button
           phx-click="focus_agent"
           phx-value-agent={@event.agent}
           phx-target={@myself}
-          class="text-xs font-semibold text-gray-300 hover:text-white transition flex-shrink-0"
+          class="flex-shrink-0"
+          style={"font-size: 0.75rem; font-weight: 600; color: #{agent_color(@event.agent)}; transition: opacity 200ms;"}
         >
           {@event.agent}
         </button>
-        <span class="text-xs px-1.5 py-0.5 rounded bg-violet-400/20 text-violet-400 font-medium flex-shrink-0">
-          {tool_icon(@tool_name)} {@tool_name}
+        <span
+          style={"display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 9999px; font-size: 0.6875rem; font-weight: 500; background: #{@config.accent_bg}; color: #{@config.accent_text}; border: 1px solid #{@config.accent_border};"}
+          class="flex-shrink-0"
+        >
+          {Phoenix.HTML.raw(tool_icon(@tool_name))} {@tool_name}
         </span>
         <button
           :if={is_binary(@file_path)}
           phx-click="inspect_file"
           phx-value-path={@file_path}
           phx-target={@myself}
-          class="text-xs text-violet-400/70 hover:text-violet-300 font-mono transition truncate min-w-0"
+          style={"font-size: 0.6875rem; font-family: var(--font-mono); color: #{@config.accent_text}; opacity: 0.7; transition: opacity 200ms;"}
+          class="truncate min-w-0"
         >
           {Path.basename(@file_path)}
         </button>
-        <span class="text-xs text-gray-600 ml-auto flex-shrink-0">
+        <span class="ml-auto flex-shrink-0" style="font-size: 0.6875rem; font-family: var(--font-mono); color: var(--text-muted);">
           {relative_time(@event.timestamp)}
         </span>
       </div>
       <%!-- Collapsible result --%>
-      <div :if={@has_result} class="px-2.5 pb-1.5">
+      <div :if={@has_result} class="px-3 pb-2">
         <button
           :if={!@expanded}
           phx-click="expand_event"
           phx-value-id={@event.id}
           phx-target={@myself}
-          class="text-xs text-gray-500 hover:text-gray-300 transition"
+          style="font-size: 0.6875rem; color: var(--text-muted); transition: color 200ms;"
         >
           &#9656; Result ({format_result_size(@result_preview)})
         </button>
-        <div :if={@expanded}>
-          <pre class="text-xs text-gray-400 font-mono whitespace-pre-wrap break-words bg-gray-950/50 rounded p-1.5 max-h-64 overflow-auto mt-1">{@result_preview}</pre>
+        <div :if={@expanded} class="animate-fade-in-up">
+          <pre
+            class="overflow-auto mt-1"
+            style="font-size: 0.6875rem; font-family: var(--font-mono); color: var(--text-secondary); white-space: pre-wrap; word-break: break-word; background: var(--surface-0); border: 1px solid var(--border-subtle); border-radius: 0.375rem; padding: 0.5rem 0.75rem; max-height: 16rem;"
+          >{@result_preview}</pre>
           <button
             phx-click="expand_event"
             phx-value-id={@event.id}
             phx-target={@myself}
-            class="text-xs text-gray-500 hover:text-gray-300 mt-1 transition"
+            class="mt-1"
+            style="font-size: 0.6875rem; color: var(--text-muted); transition: color 200ms;"
           >
             &#9662; Collapse
           </button>
         </div>
       </div>
       <%!-- Fallback: show content if no result --%>
-      <div :if={!@has_result && String.length(@event.content) > 0} class="px-2.5 pb-1.5">
-        <p class="text-xs text-gray-400 break-words">{@event.content}</p>
+      <div :if={!@has_result && String.length(@event.content) > 0} class="px-3 pb-2">
+        <p style="font-size: 0.75rem; color: var(--text-secondary); word-break: break-word;">{@event.content}</p>
       </div>
     </div>
     """
@@ -286,6 +313,7 @@ defmodule LoomkinWeb.TeamActivityComponent do
 
   # Message: agent -> recipient, content truncated with expand
   defp render_event_card(assigns, %{type: :message} = event) do
+    config = @type_config.message
     meta = Map.get(event, :metadata, %{})
     from = meta[:from] || event.agent
     to = meta[:to]
@@ -297,6 +325,7 @@ defmodule LoomkinWeb.TeamActivityComponent do
     assigns =
       assigns
       |> assign(:event, event)
+      |> assign(:config, config)
       |> assign(:from, from)
       |> assign(:display_to, display_to)
       |> assign(:content_text, content)
@@ -304,25 +333,32 @@ defmodule LoomkinWeb.TeamActivityComponent do
       |> assign(:expanded, expanded)
 
     ~H"""
-    <div class="rounded bg-gray-900/50 hover:bg-gray-900/80 transition border-l-2 border-emerald-500/40 overflow-hidden">
-      <div class="flex items-center gap-1.5 px-2.5 py-1.5 min-w-0">
-        <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style={"background-color: #{agent_color(@event.agent)}"}></span>
+    <div
+      class="interactive overflow-hidden"
+      style={"background: var(--surface-2); border: 1px solid var(--border-subtle); border-left: 2px solid #{@config.accent}; border-radius: 0.5rem;"}
+    >
+      <div class="flex items-center gap-2 px-3 py-2 min-w-0">
+        <span class="flex-shrink-0" style={"width: 7px; height: 7px; border-radius: 9999px; background-color: #{agent_color(@event.agent)};"}></span>
         <button
           phx-click="focus_agent"
           phx-value-agent={@from}
           phx-target={@myself}
-          class="text-xs font-semibold text-gray-300 hover:text-white transition flex-shrink-0"
+          class="flex-shrink-0"
+          style={"font-size: 0.75rem; font-weight: 600; color: #{agent_color(@from)}; transition: opacity 200ms;"}
         >
           {@from}
         </button>
-        <span class="text-xs text-gray-600 flex-shrink-0">&#8594;</span>
-        <span class="text-xs font-medium text-emerald-400 truncate">{@display_to}</span>
-        <span class="text-xs text-gray-600 ml-auto flex-shrink-0">
+        <span style="font-size: 0.6875rem; color: var(--text-muted);">&#8594;</span>
+        <span style={"font-size: 0.75rem; font-weight: 500; color: #{@config.accent_text};"} class="truncate">{@display_to}</span>
+        <span class="ml-auto flex-shrink-0" style="font-size: 0.6875rem; font-family: var(--font-mono); color: var(--text-muted);">
           {relative_time(@event.timestamp)}
         </span>
       </div>
-      <div class="px-2.5 pb-1.5">
-        <p class={"text-sm text-gray-300 leading-snug whitespace-pre-wrap break-words #{if @long_content && !@expanded, do: "line-clamp-3"}"}>
+      <div class="px-3 pb-2">
+        <p
+          class={if @long_content && !@expanded, do: "line-clamp-3"}
+          style="font-size: 0.8125rem; color: var(--text-primary); line-height: 1.5; white-space: pre-wrap; word-break: break-word;"
+        >
           {@content_text}
         </p>
         <button
@@ -330,7 +366,8 @@ defmodule LoomkinWeb.TeamActivityComponent do
           phx-click="expand_event"
           phx-value-id={@event.id}
           phx-target={@myself}
-          class="text-xs text-emerald-400/70 hover:text-emerald-300 mt-0.5 transition"
+          class="mt-1"
+          style={"font-size: 0.6875rem; color: #{@config.accent_text}; opacity: 0.7; transition: opacity 200ms;"}
         >
           show more
         </button>
@@ -339,7 +376,8 @@ defmodule LoomkinWeb.TeamActivityComponent do
           phx-click="expand_event"
           phx-value-id={@event.id}
           phx-target={@myself}
-          class="text-xs text-gray-500 hover:text-gray-300 mt-0.5 transition"
+          class="mt-1"
+          style="font-size: 0.6875rem; color: var(--text-muted); transition: opacity 200ms;"
         >
           show less
         </button>
@@ -352,7 +390,7 @@ defmodule LoomkinWeb.TeamActivityComponent do
   defp render_event_card(assigns, %{type: type} = event)
        when type in [:task_created, :task_assigned, :task_started, :task_complete, :task_failed] do
     meta = Map.get(event, :metadata, %{})
-    config = Map.get(@type_config, type, %{label: to_string(type), icon: "&#9679;", bg: "bg-gray-400/20", text: "text-gray-400", border: "border-gray-500/40", card_bg: "bg-gray-900/50"})
+    config = Map.get(@type_config, type, fallback_config())
     title = meta[:title]
     owner = meta[:owner]
     result = meta[:result]
@@ -368,50 +406,61 @@ defmodule LoomkinWeb.TeamActivityComponent do
       |> assign(:expanded, expanded)
 
     ~H"""
-    <div class={"rounded hover:bg-gray-900/80 transition border-l-2 #{@config.border} overflow-hidden #{@config.card_bg}"}>
-      <div class="flex items-center gap-1.5 px-2.5 py-1.5 min-w-0">
-        <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style={"background-color: #{agent_color(@event.agent)}"}></span>
+    <div
+      class="interactive overflow-hidden"
+      style={"background: #{@config.accent_bg}; border: 1px solid var(--border-subtle); border-left: 2px solid #{@config.accent}; border-radius: 0.5rem;"}
+    >
+      <div class="flex items-center gap-2 px-3 py-2 min-w-0">
+        <span class="flex-shrink-0" style={"width: 7px; height: 7px; border-radius: 9999px; background-color: #{agent_color(@event.agent)};"}></span>
         <button
           phx-click="focus_agent"
           phx-value-agent={@event.agent}
           phx-target={@myself}
-          class="text-xs font-semibold text-gray-300 hover:text-white transition flex-shrink-0"
+          class="flex-shrink-0"
+          style={"font-size: 0.75rem; font-weight: 600; color: #{agent_color(@event.agent)}; transition: opacity 200ms;"}
         >
           {@event.agent}
         </button>
-        <span class={"text-xs px-1.5 py-0.5 rounded font-medium flex-shrink-0 #{@config.bg} #{@config.text}"}>
+        <span
+          style={"display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 9999px; font-size: 0.6875rem; font-weight: 500; background: #{@config.accent_bg}; color: #{@config.accent_text}; border: 1px solid #{@config.accent_border};"}
+          class="flex-shrink-0"
+        >
           {Phoenix.HTML.raw(@config.icon)} {@config.label}
         </span>
-        <span :if={@title} class="text-xs text-gray-300 truncate min-w-0 font-medium">{@title}</span>
-        <span :if={@owner} class="text-xs text-gray-500 flex-shrink-0">
-          &#8594; <span class="text-gray-400">{@owner}</span>
+        <span :if={@title} class="truncate min-w-0" style="font-size: 0.75rem; font-weight: 500; color: var(--text-primary);">{@title}</span>
+        <span :if={@owner} class="flex-shrink-0" style="font-size: 0.6875rem; color: var(--text-muted);">
+          &#8594; <span style="color: var(--text-secondary);">{@owner}</span>
         </span>
-        <span class="text-xs text-gray-600 ml-auto flex-shrink-0">
+        <span class="ml-auto flex-shrink-0" style="font-size: 0.6875rem; font-family: var(--font-mono); color: var(--text-muted);">
           {relative_time(@event.timestamp)}
         </span>
       </div>
       <%!-- Show content only when there is no title (fallback) --%>
-      <div :if={!@title && @event.content != ""} class="px-2.5 pb-1.5">
-        <p class="text-xs text-gray-400 break-words">{@event.content}</p>
+      <div :if={!@title && @event.content != ""} class="px-3 pb-2">
+        <p style="font-size: 0.75rem; color: var(--text-secondary); word-break: break-word;">{@event.content}</p>
       </div>
       <%!-- Collapsible result for completed tasks --%>
-      <div :if={@result && @event.type == :task_complete} class="px-2.5 pb-1.5">
+      <div :if={@result && @event.type == :task_complete} class="px-3 pb-2">
         <button
           :if={!@expanded}
           phx-click="expand_event"
           phx-value-id={@event.id}
           phx-target={@myself}
-          class="text-xs text-gray-500 hover:text-gray-300 transition"
+          style="font-size: 0.6875rem; color: var(--text-muted); transition: color 200ms;"
         >
           &#9656; Show result
         </button>
-        <div :if={@expanded}>
-          <pre class="text-xs text-gray-400 font-mono whitespace-pre-wrap break-words bg-gray-950/50 rounded p-1.5 max-h-48 overflow-auto">{@result}</pre>
+        <div :if={@expanded} class="animate-fade-in-up">
+          <pre
+            class="overflow-auto"
+            style="font-size: 0.6875rem; font-family: var(--font-mono); color: var(--text-secondary); white-space: pre-wrap; word-break: break-word; background: var(--surface-0); border: 1px solid var(--border-subtle); border-radius: 0.375rem; padding: 0.5rem 0.75rem; max-height: 12rem;"
+          >{@result}</pre>
           <button
             phx-click="expand_event"
             phx-value-id={@event.id}
             phx-target={@myself}
-            class="text-xs text-gray-500 hover:text-gray-300 mt-1 transition"
+            class="mt-1"
+            style="font-size: 0.6875rem; color: var(--text-muted); transition: color 200ms;"
           >
             &#9662; Collapse
           </button>
@@ -423,6 +472,7 @@ defmodule LoomkinWeb.TeamActivityComponent do
 
   # Discovery: highlighted background, star icon, content always visible
   defp render_event_card(assigns, %{type: :discovery} = event) do
+    config = @type_config.discovery
     expanded = MapSet.member?(assigns.expanded_ids, event.id)
     content = event.content || ""
     long_content = String.length(content) > 200
@@ -430,31 +480,39 @@ defmodule LoomkinWeb.TeamActivityComponent do
     assigns =
       assigns
       |> assign(:event, event)
+      |> assign(:config, config)
       |> assign(:content_text, content)
       |> assign(:long_content, long_content)
       |> assign(:expanded, expanded)
 
     ~H"""
-    <div class="rounded bg-yellow-950/10 hover:bg-yellow-950/20 transition border-l-2 border-yellow-500/40 overflow-hidden">
-      <div class="flex items-center gap-1.5 px-2.5 py-1.5 min-w-0">
-        <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style={"background-color: #{agent_color(@event.agent)}"}></span>
+    <div
+      class="interactive overflow-hidden"
+      style={"background: #{@config.accent_bg}; border: 1px solid #{@config.accent_border}; border-left: 2px solid #{@config.accent}; border-radius: 0.5rem; box-shadow: 0 0 16px rgba(251, 191, 36, 0.06);"}
+    >
+      <div class="flex items-center gap-2 px-3 py-2 min-w-0">
+        <span class="flex-shrink-0" style={"width: 7px; height: 7px; border-radius: 9999px; background-color: #{agent_color(@event.agent)};"}></span>
         <button
           phx-click="focus_agent"
           phx-value-agent={@event.agent}
           phx-target={@myself}
-          class="text-xs font-semibold text-gray-300 hover:text-white transition flex-shrink-0"
+          class="flex-shrink-0"
+          style={"font-size: 0.75rem; font-weight: 600; color: #{agent_color(@event.agent)}; transition: opacity 200ms;"}
         >
           {@event.agent}
         </button>
-        <span class="text-xs px-1.5 py-0.5 rounded font-medium bg-yellow-400/20 text-yellow-400 flex-shrink-0">
+        <span class="badge-warning flex-shrink-0" style="padding: 1px 8px; font-size: 0.6875rem;">
           &#11088; discovery
         </span>
-        <span class="text-xs text-gray-600 ml-auto flex-shrink-0">
+        <span class="ml-auto flex-shrink-0" style="font-size: 0.6875rem; font-family: var(--font-mono); color: var(--text-muted);">
           {relative_time(@event.timestamp)}
         </span>
       </div>
-      <div class="px-2.5 pb-1.5">
-        <p class={"text-sm text-yellow-200/80 leading-snug whitespace-pre-wrap break-words #{if @long_content && !@expanded, do: "line-clamp-2"}"}>
+      <div class="px-3 pb-2">
+        <p
+          class={if @long_content && !@expanded, do: "line-clamp-2"}
+          style={"font-size: 0.8125rem; color: #{@config.accent_text}; line-height: 1.5; white-space: pre-wrap; word-break: break-word;"}
+        >
           {@content_text}
         </p>
         <button
@@ -462,7 +520,8 @@ defmodule LoomkinWeb.TeamActivityComponent do
           phx-click="expand_event"
           phx-value-id={@event.id}
           phx-target={@myself}
-          class="text-xs text-yellow-400/60 hover:text-yellow-300 mt-0.5 transition"
+          class="mt-1"
+          style={"font-size: 0.6875rem; color: #{@config.accent_text}; opacity: 0.6; transition: opacity 200ms;"}
         >
           show more
         </button>
@@ -471,7 +530,8 @@ defmodule LoomkinWeb.TeamActivityComponent do
           phx-click="expand_event"
           phx-value-id={@event.id}
           phx-target={@myself}
-          class="text-xs text-yellow-400/60 hover:text-yellow-300 mt-0.5 transition"
+          class="mt-1"
+          style={"font-size: 0.6875rem; color: #{@config.accent_text}; opacity: 0.6; transition: opacity 200ms;"}
         >
           show less
         </button>
@@ -482,6 +542,7 @@ defmodule LoomkinWeb.TeamActivityComponent do
 
   # Agent spawn: centered banner style, compact
   defp render_event_card(assigns, %{type: :agent_spawn} = event) do
+    config = @type_config.agent_spawn
     meta = Map.get(event, :metadata, %{})
     role = meta[:role]
     model = meta[:model]
@@ -490,18 +551,22 @@ defmodule LoomkinWeb.TeamActivityComponent do
     assigns =
       assigns
       |> assign(:event, event)
+      |> assign(:config, config)
       |> assign(:agent_name, agent_name)
       |> assign(:role, role)
       |> assign(:model, model)
 
     ~H"""
-    <div class="rounded bg-teal-500/5 border border-teal-500/20 overflow-hidden">
-      <div class="flex items-center gap-1.5 px-2.5 py-1 min-w-0">
-        <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style={"background-color: #{agent_color(@agent_name)}"}></span>
-        <span class="text-xs font-medium text-teal-300 flex-shrink-0">&#10035; {@agent_name} joined</span>
-        <span :if={@role} class="text-xs text-gray-500 truncate">as <span class="text-gray-400">{@role}</span></span>
-        <span :if={@model} class="text-xs text-gray-600 ml-auto flex-shrink-0">{@model}</span>
-        <span :if={!@model} class="text-xs text-gray-600 ml-auto flex-shrink-0">
+    <div
+      class="overflow-hidden"
+      style={"background: #{@config.accent_bg}; border: 1px solid #{@config.accent_border}; border-radius: 0.5rem;"}
+    >
+      <div class="flex items-center justify-center gap-2 px-3 py-1.5 min-w-0">
+        <span class="flex-shrink-0" style={"width: 7px; height: 7px; border-radius: 9999px; background-color: #{agent_color(@agent_name)};"}></span>
+        <span style={"font-size: 0.75rem; font-weight: 500; color: #{@config.accent_text};"}>&#10035; {@agent_name} joined</span>
+        <span :if={@role} style="font-size: 0.6875rem; color: var(--text-muted);">as <span style="color: var(--text-secondary);">{@role}</span></span>
+        <span :if={@model} class="ml-auto" style="font-size: 0.6875rem; font-family: var(--font-mono); color: var(--text-muted);">{@model}</span>
+        <span :if={!@model} class="ml-auto" style="font-size: 0.6875rem; font-family: var(--font-mono); color: var(--text-muted);">
           {relative_time(@event.timestamp)}
         </span>
       </div>
@@ -511,6 +576,7 @@ defmodule LoomkinWeb.TeamActivityComponent do
 
   # Error: red tint, warning icon, error message in header, details collapsible
   defp render_event_card(assigns, %{type: :error} = event) do
+    config = @type_config.error
     meta = Map.get(event, :metadata, %{})
     details = meta[:details]
     expanded = MapSet.member?(assigns.expanded_ids, event.id)
@@ -521,53 +587,62 @@ defmodule LoomkinWeb.TeamActivityComponent do
     assigns =
       assigns
       |> assign(:event, event)
+      |> assign(:config, config)
       |> assign(:details, details)
       |> assign(:expanded, expanded)
       |> assign(:brief_error, brief_error)
       |> assign(:content_text, content)
 
     ~H"""
-    <div class="rounded bg-red-950/30 hover:bg-red-950/50 transition border-l-2 border-red-500/60 overflow-hidden">
-      <div class="flex items-center gap-1.5 px-2.5 py-1.5 min-w-0">
-        <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style={"background-color: #{agent_color(@event.agent)}"}></span>
+    <div
+      class="interactive overflow-hidden"
+      style={"background: #{@config.accent_bg}; border: 1px solid #{@config.accent_border}; border-left: 2px solid #{@config.accent}; border-radius: 0.5rem;"}
+    >
+      <div class="flex items-center gap-2 px-3 py-2 min-w-0">
+        <span class="flex-shrink-0" style={"width: 7px; height: 7px; border-radius: 9999px; background-color: #{agent_color(@event.agent)};"}></span>
         <button
           phx-click="focus_agent"
           phx-value-agent={@event.agent}
           phx-target={@myself}
-          class="text-xs font-semibold text-gray-300 hover:text-white transition flex-shrink-0"
+          class="flex-shrink-0"
+          style={"font-size: 0.75rem; font-weight: 600; color: #{agent_color(@event.agent)}; transition: opacity 200ms;"}
         >
           {@event.agent}
         </button>
-        <span class="text-xs px-1.5 py-0.5 rounded font-medium bg-red-400/20 text-red-400 flex-shrink-0">
+        <span class="badge-danger flex-shrink-0" style="padding: 1px 8px; font-size: 0.6875rem;">
           &#9888; error
         </span>
-        <span :if={@brief_error && @content_text != ""} class="text-xs text-red-300/80 truncate min-w-0">{@content_text}</span>
-        <span class="text-xs text-gray-600 ml-auto flex-shrink-0">
+        <span :if={@brief_error && @content_text != ""} class="truncate min-w-0" style={"font-size: 0.75rem; color: #{@config.accent_text}; opacity: 0.8;"}>{@content_text}</span>
+        <span class="ml-auto flex-shrink-0" style="font-size: 0.6875rem; font-family: var(--font-mono); color: var(--text-muted);">
           {relative_time(@event.timestamp)}
         </span>
       </div>
       <%!-- Full error content if too long for header --%>
-      <div :if={!@brief_error} class="px-2.5 pb-1.5">
-        <p class="text-xs text-red-300/80 break-words">{@content_text}</p>
+      <div :if={!@brief_error} class="px-3 pb-2">
+        <p style={"font-size: 0.75rem; color: #{@config.accent_text}; opacity: 0.8; word-break: break-word;"}>{@content_text}</p>
       </div>
       <%!-- Collapsible details (stack trace etc.) --%>
-      <div :if={@details} class="px-2.5 pb-1.5">
+      <div :if={@details} class="px-3 pb-2">
         <button
           :if={!@expanded}
           phx-click="expand_event"
           phx-value-id={@event.id}
           phx-target={@myself}
-          class="text-xs text-gray-500 hover:text-gray-300 transition"
+          style="font-size: 0.6875rem; color: var(--text-muted); transition: color 200ms;"
         >
           &#9656; Show details
         </button>
-        <div :if={@expanded}>
-          <pre class="text-xs text-red-300/70 font-mono whitespace-pre-wrap break-words bg-gray-950/50 rounded p-1.5 max-h-48 overflow-auto">{@details}</pre>
+        <div :if={@expanded} class="animate-fade-in-up">
+          <pre
+            class="overflow-auto"
+            style={"font-size: 0.6875rem; font-family: var(--font-mono); color: #{@config.accent_text}; opacity: 0.7; white-space: pre-wrap; word-break: break-word; background: var(--surface-0); border: 1px solid var(--border-subtle); border-radius: 0.375rem; padding: 0.5rem 0.75rem; max-height: 12rem;"}
+          >{@details}</pre>
           <button
             phx-click="expand_event"
             phx-value-id={@event.id}
             phx-target={@myself}
-            class="text-xs text-gray-500 hover:text-gray-300 mt-1 transition"
+            class="mt-1"
+            style="font-size: 0.6875rem; color: var(--text-muted); transition: color 200ms;"
           >
             &#9662; Collapse
           </button>
@@ -579,6 +654,7 @@ defmodule LoomkinWeb.TeamActivityComponent do
 
   # Thinking/Streaming: subtle, with animated cursor for live streams
   defp render_event_card(assigns, %{type: type} = event) when type in [:thinking, :streaming] do
+    config = @type_config[type]
     meta = Map.get(event, :metadata, %{})
     streaming_content = meta[:content]
     is_live = type == :streaming
@@ -586,29 +662,41 @@ defmodule LoomkinWeb.TeamActivityComponent do
     assigns =
       assigns
       |> assign(:event, event)
+      |> assign(:config, config)
       |> assign(:streaming_content, streaming_content)
       |> assign(:is_live, is_live)
 
     ~H"""
-    <div class={"rounded bg-gray-900/40 transition border-l-2 border-indigo-500/30 overflow-hidden #{if @is_live, do: "ring-1 ring-indigo-500/20 animate-pulse-subtle"}"}>
-      <div class="flex items-center gap-1.5 px-2.5 py-1.5 min-w-0">
-        <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style={"background-color: #{agent_color(@event.agent)}"}></span>
+    <div
+      class={"overflow-hidden #{if @is_live, do: "streaming-card"}"}
+      style={"background: #{@config.accent_bg}; border: 1px solid #{@config.accent_border}; border-left: 2px solid #{@config.accent}; border-radius: 0.5rem;"}
+    >
+      <div class="flex items-center gap-2 px-3 py-2 min-w-0">
+        <span class="flex-shrink-0" style={"width: 7px; height: 7px; border-radius: 9999px; background-color: #{agent_color(@event.agent)}; #{if @is_live, do: "box-shadow: 0 0 6px #{agent_color(@event.agent)};"}"}></span>
         <button
           phx-click="focus_agent"
           phx-value-agent={@event.agent}
           phx-target={@myself}
-          class="text-xs font-semibold text-gray-400 hover:text-white transition flex-shrink-0"
+          class="flex-shrink-0"
+          style={"font-size: 0.75rem; font-weight: 600; color: #{agent_color(@event.agent)}; opacity: 0.7; transition: opacity 200ms;"}
         >
           {@event.agent}
         </button>
-        <span class="text-xs text-indigo-400/60">thinking&#8230;</span>
-        <span class="text-xs text-gray-600 ml-auto flex-shrink-0">
+        <span style={"font-size: 0.6875rem; color: #{@config.accent_text}; opacity: 0.6;"}>
+          thinking
+          <span :if={@is_live} class="inline-flex gap-0.5 ml-0.5 align-middle">
+            <span class="thinking-dot inline-block rounded-full" style={"width: 3px; height: 3px; background-color: #{@config.accent_text};"}></span>
+            <span class="thinking-dot inline-block rounded-full" style={"width: 3px; height: 3px; background-color: #{@config.accent_text};"}></span>
+            <span class="thinking-dot inline-block rounded-full" style={"width: 3px; height: 3px; background-color: #{@config.accent_text};"}></span>
+          </span>
+        </span>
+        <span class="ml-auto flex-shrink-0" style="font-size: 0.6875rem; font-family: var(--font-mono); color: var(--text-muted);">
           {relative_time(@event.timestamp)}
         </span>
       </div>
-      <div :if={@streaming_content || @event.content != ""} class="px-2.5 pb-1.5">
-        <p class="text-xs text-gray-500 leading-snug whitespace-pre-wrap break-words line-clamp-2">
-          {@streaming_content || @event.content}<span :if={@is_live} class="inline-block w-1 h-3 bg-indigo-400 animate-pulse ml-0.5 align-text-bottom"></span>
+      <div :if={@streaming_content || @event.content != ""} class="px-3 pb-2">
+        <p class="line-clamp-2" style="font-size: 0.75rem; color: var(--text-muted); line-height: 1.5; white-space: pre-wrap; word-break: break-word;">
+          {@streaming_content || @event.content}<span :if={@is_live} class="streaming-cursor"></span>
         </p>
       </div>
     </div>
@@ -617,6 +705,7 @@ defmodule LoomkinWeb.TeamActivityComponent do
 
   # Context offload: compact single-row card
   defp render_event_card(assigns, %{type: :context_offload} = event) do
+    config = @type_config.context_offload
     meta = Map.get(event, :metadata, %{})
     topic = meta[:topic]
     token_count = meta[:token_count]
@@ -624,28 +713,36 @@ defmodule LoomkinWeb.TeamActivityComponent do
     assigns =
       assigns
       |> assign(:event, event)
+      |> assign(:config, config)
       |> assign(:topic, topic)
       |> assign(:token_count, token_count)
 
     ~H"""
-    <div class="rounded bg-gray-900/50 hover:bg-gray-900/80 transition border-l-2 border-amber-500/40 overflow-hidden">
-      <div class="flex items-center gap-1.5 px-2.5 py-1.5 min-w-0">
-        <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style={"background-color: #{agent_color(@event.agent)}"}></span>
+    <div
+      class="interactive overflow-hidden"
+      style={"background: var(--surface-2); border: 1px solid var(--border-subtle); border-left: 2px solid #{@config.accent}; border-radius: 0.5rem;"}
+    >
+      <div class="flex items-center gap-2 px-3 py-2 min-w-0">
+        <span class="flex-shrink-0" style={"width: 7px; height: 7px; border-radius: 9999px; background-color: #{agent_color(@event.agent)};"}></span>
         <button
           phx-click="focus_agent"
           phx-value-agent={@event.agent}
           phx-target={@myself}
-          class="text-xs font-semibold text-gray-300 hover:text-white transition flex-shrink-0"
+          class="flex-shrink-0"
+          style={"font-size: 0.75rem; font-weight: 600; color: #{agent_color(@event.agent)}; transition: opacity 200ms;"}
         >
           {@event.agent}
         </button>
-        <span class="text-xs px-1.5 py-0.5 rounded font-medium bg-amber-400/20 text-amber-400 flex-shrink-0">
+        <span
+          style={"display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 9999px; font-size: 0.6875rem; font-weight: 500; background: #{@config.accent_bg}; color: #{@config.accent_text}; border: 1px solid #{@config.accent_border};"}
+          class="flex-shrink-0"
+        >
           &#128230; offload
         </span>
-        <span class="text-xs text-gray-400 truncate min-w-0">{@event.content}</span>
-        <span :if={@topic} class="text-xs text-amber-400/60 flex-shrink-0">({@topic})</span>
-        <span :if={@token_count} class="text-xs text-gray-600 flex-shrink-0">{format_tokens(@token_count)} tok</span>
-        <span class="text-xs text-gray-600 ml-auto flex-shrink-0">
+        <span class="truncate min-w-0" style="font-size: 0.75rem; color: var(--text-secondary);">{@event.content}</span>
+        <span :if={@topic} class="flex-shrink-0" style={"font-size: 0.6875rem; color: #{@config.accent_text}; opacity: 0.6;"}>({@topic})</span>
+        <span :if={@token_count} class="flex-shrink-0" style="font-size: 0.6875rem; font-family: var(--font-mono); color: var(--text-muted);">{format_tokens(@token_count)} tok</span>
+        <span class="ml-auto flex-shrink-0" style="font-size: 0.6875rem; font-family: var(--font-mono); color: var(--text-muted);">
           {relative_time(@event.timestamp)}
         </span>
       </div>
@@ -655,35 +752,44 @@ defmodule LoomkinWeb.TeamActivityComponent do
 
   # Question: highlighted, question mark icon, stands out for attention
   defp render_event_card(assigns, %{type: :question} = event) do
+    config = @type_config.question
     meta = Map.get(event, :metadata, %{})
     from = meta[:from] || event.agent
 
     assigns =
       assigns
       |> assign(:event, event)
+      |> assign(:config, config)
       |> assign(:from, from)
 
     ~H"""
-    <div class="rounded bg-sky-950/15 hover:bg-sky-950/25 transition border-l-2 border-sky-500/50 overflow-hidden">
-      <div class="flex items-center gap-1.5 px-2.5 py-1.5 min-w-0">
-        <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style={"background-color: #{agent_color(@event.agent)}"}></span>
+    <div
+      class="interactive overflow-hidden"
+      style={"background: #{@config.accent_bg}; border: 1px solid #{@config.accent_border}; border-left: 2px solid #{@config.accent}; border-radius: 0.5rem; box-shadow: 0 0 12px rgba(56, 189, 248, 0.08);"}
+    >
+      <div class="flex items-center gap-2 px-3 py-2 min-w-0">
+        <span class="flex-shrink-0" style={"width: 7px; height: 7px; border-radius: 9999px; background-color: #{agent_color(@event.agent)};"}></span>
         <button
           phx-click="focus_agent"
           phx-value-agent={@from}
           phx-target={@myself}
-          class="text-xs font-semibold text-gray-300 hover:text-white transition flex-shrink-0"
+          class="flex-shrink-0"
+          style={"font-size: 0.75rem; font-weight: 600; color: #{agent_color(@from)}; transition: opacity 200ms;"}
         >
           {@from}
         </button>
-        <span class="text-xs px-1.5 py-0.5 rounded font-medium bg-sky-400/20 text-sky-400 flex-shrink-0">
+        <span
+          style={"display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 9999px; font-size: 0.6875rem; font-weight: 500; background: #{@config.accent_bg}; color: #{@config.accent_text}; border: 1px solid #{@config.accent_border};"}
+          class="flex-shrink-0"
+        >
           &#10068; question
         </span>
-        <span class="text-xs text-gray-600 ml-auto flex-shrink-0">
+        <span class="ml-auto flex-shrink-0" style="font-size: 0.6875rem; font-family: var(--font-mono); color: var(--text-muted);">
           {relative_time(@event.timestamp)}
         </span>
       </div>
-      <div class="px-2.5 pb-1.5">
-        <p class="text-sm text-sky-200/80 leading-snug whitespace-pre-wrap break-words">{@event.content}</p>
+      <div class="px-3 pb-2">
+        <p style={"font-size: 0.8125rem; color: #{@config.accent_text}; line-height: 1.5; white-space: pre-wrap; word-break: break-word;"}>{@event.content}</p>
       </div>
     </div>
     """
@@ -691,6 +797,7 @@ defmodule LoomkinWeb.TeamActivityComponent do
 
   # Answer: paired with question styling
   defp render_event_card(assigns, %{type: :answer} = event) do
+    config = @type_config.answer
     meta = Map.get(event, :metadata, %{})
     from = meta[:from] || event.agent
     to = meta[:to]
@@ -698,32 +805,40 @@ defmodule LoomkinWeb.TeamActivityComponent do
     assigns =
       assigns
       |> assign(:event, event)
+      |> assign(:config, config)
       |> assign(:from, from)
       |> assign(:to, to)
 
     ~H"""
-    <div class="rounded bg-gray-900/50 hover:bg-gray-900/80 transition border-l-2 border-sky-500/40 overflow-hidden">
-      <div class="flex items-center gap-1.5 px-2.5 py-1.5 min-w-0">
-        <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style={"background-color: #{agent_color(@event.agent)}"}></span>
+    <div
+      class="interactive overflow-hidden"
+      style={"background: var(--surface-2); border: 1px solid var(--border-subtle); border-left: 2px solid #{@config.accent}; border-radius: 0.5rem;"}
+    >
+      <div class="flex items-center gap-2 px-3 py-2 min-w-0">
+        <span class="flex-shrink-0" style={"width: 7px; height: 7px; border-radius: 9999px; background-color: #{agent_color(@event.agent)};"}></span>
         <button
           phx-click="focus_agent"
           phx-value-agent={@from}
           phx-target={@myself}
-          class="text-xs font-semibold text-gray-300 hover:text-white transition flex-shrink-0"
+          class="flex-shrink-0"
+          style={"font-size: 0.75rem; font-weight: 600; color: #{agent_color(@from)}; transition: opacity 200ms;"}
         >
           {@from}
         </button>
-        <span class="text-xs text-gray-600 flex-shrink-0">&#8594;</span>
-        <span :if={@to} class="text-xs font-medium text-sky-400 truncate">{@to}</span>
-        <span class="text-xs px-1.5 py-0.5 rounded font-medium bg-sky-400/20 text-sky-400 flex-shrink-0">
+        <span style="font-size: 0.6875rem; color: var(--text-muted);">&#8594;</span>
+        <span :if={@to} class="truncate" style={"font-size: 0.75rem; font-weight: 500; color: #{@config.accent_text};"}>{@to}</span>
+        <span
+          style={"display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 9999px; font-size: 0.6875rem; font-weight: 500; background: #{@config.accent_bg}; color: #{@config.accent_text}; border: 1px solid #{@config.accent_border};"}
+          class="flex-shrink-0"
+        >
           &#10069; answer
         </span>
-        <span class="text-xs text-gray-600 ml-auto flex-shrink-0">
+        <span class="ml-auto flex-shrink-0" style="font-size: 0.6875rem; font-family: var(--font-mono); color: var(--text-muted);">
           {relative_time(@event.timestamp)}
         </span>
       </div>
-      <div class="px-2.5 pb-1.5">
-        <p class="text-sm text-gray-300 leading-snug whitespace-pre-wrap break-words">{@event.content}</p>
+      <div class="px-3 pb-2">
+        <p style="font-size: 0.8125rem; color: var(--text-primary); line-height: 1.5; white-space: pre-wrap; word-break: break-word;">{@event.content}</p>
       </div>
     </div>
     """
@@ -731,6 +846,7 @@ defmodule LoomkinWeb.TeamActivityComponent do
 
   # Channel message: external channel indicator
   defp render_event_card(assigns, %{type: :channel_message} = event) do
+    config = @type_config.channel_message
     meta = Map.get(event, :metadata, %{})
     channel = meta[:channel]
     direction = meta[:direction]
@@ -738,25 +854,103 @@ defmodule LoomkinWeb.TeamActivityComponent do
     assigns =
       assigns
       |> assign(:event, event)
+      |> assign(:config, config)
       |> assign(:channel, channel)
       |> assign(:direction, direction)
 
     ~H"""
-    <div class="rounded bg-gray-900/50 hover:bg-gray-900/80 transition border-l-2 border-cyan-500/40 overflow-hidden">
-      <div class="flex items-center gap-1.5 px-2.5 py-1.5 min-w-0">
-        <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style={"background-color: #{agent_color(@event.agent)}"}></span>
-        <span class="text-xs font-semibold text-gray-300 flex-shrink-0">
-          {@event.agent}
-        </span>
-        <span class="text-xs px-1.5 py-0.5 rounded font-medium bg-cyan-400/20 text-cyan-400 flex-shrink-0">
+    <div
+      class="interactive overflow-hidden"
+      style={"background: var(--surface-2); border: 1px solid var(--border-subtle); border-left: 2px solid #{@config.accent}; border-radius: 0.5rem;"}
+    >
+      <div class="flex items-center gap-2 px-3 py-2 min-w-0">
+        <span class="flex-shrink-0" style={"width: 7px; height: 7px; border-radius: 9999px; background-color: #{agent_color(@event.agent)};"}></span>
+        <span class="flex-shrink-0" style={"font-size: 0.75rem; font-weight: 600; color: #{agent_color(@event.agent)};"}>{@event.agent}</span>
+        <span
+          style={"display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 9999px; font-size: 0.6875rem; font-weight: 500; background: #{@config.accent_bg}; color: #{@config.accent_text}; border: 1px solid #{@config.accent_border};"}
+          class="flex-shrink-0"
+        >
           {channel_icon(@channel)} {if @direction == :inbound, do: "received", else: "sent"}
         </span>
-        <span class="text-xs text-gray-600 ml-auto flex-shrink-0">
+        <span class="ml-auto flex-shrink-0" style="font-size: 0.6875rem; font-family: var(--font-mono); color: var(--text-muted);">
           {relative_time(@event.timestamp)}
         </span>
       </div>
-      <div class="px-2.5 pb-1.5">
-        <p class="text-sm text-gray-300 leading-snug whitespace-pre-wrap break-words">{@event.content}</p>
+      <div class="px-3 pb-2">
+        <p style="font-size: 0.8125rem; color: var(--text-primary); line-height: 1.5; white-space: pre-wrap; word-break: break-word;">{@event.content}</p>
+      </div>
+    </div>
+    """
+  end
+
+  # Decision: special treatment with brand accent
+  defp render_event_card(assigns, %{type: :decision} = event) do
+    config = @type_config.decision
+    expanded = MapSet.member?(assigns.expanded_ids, event.id)
+    content = event.content || ""
+    long_content = String.length(content) > 200
+
+    assigns =
+      assigns
+      |> assign(:event, event)
+      |> assign(:config, config)
+      |> assign(:content_text, content)
+      |> assign(:long_content, long_content)
+      |> assign(:expanded, expanded)
+
+    ~H"""
+    <div
+      class="interactive overflow-hidden"
+      style={"background: #{@config.accent_bg}; border: 1px solid var(--border-subtle); border-left: 2px solid #{@config.accent}; border-radius: 0.5rem;"}
+    >
+      <div class="flex items-center gap-2 px-3 py-2 min-w-0">
+        <span class="flex-shrink-0" style={"width: 7px; height: 7px; border-radius: 9999px; background-color: #{agent_color(@event.agent)};"}></span>
+        <button
+          phx-click="focus_agent"
+          phx-value-agent={@event.agent}
+          phx-target={@myself}
+          class="flex-shrink-0"
+          style={"font-size: 0.75rem; font-weight: 600; color: #{agent_color(@event.agent)}; transition: opacity 200ms;"}
+        >
+          {@event.agent}
+        </button>
+        <span
+          style={"display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 9999px; font-size: 0.6875rem; font-weight: 500; background: #{@config.accent_bg}; color: #{@config.accent_text}; border: 1px solid #{@config.accent_border};"}
+          class="flex-shrink-0"
+        >
+          &#129504; decision
+        </span>
+        <span class="ml-auto flex-shrink-0" style="font-size: 0.6875rem; font-family: var(--font-mono); color: var(--text-muted);">
+          {relative_time(@event.timestamp)}
+        </span>
+      </div>
+      <div class="px-3 pb-2">
+        <p
+          class={if @long_content && !@expanded, do: "line-clamp-3"}
+          style={"font-size: 0.8125rem; color: #{@config.accent_text}; line-height: 1.5; white-space: pre-wrap; word-break: break-word;"}
+        >
+          {@content_text}
+        </p>
+        <button
+          :if={@long_content && !@expanded}
+          phx-click="expand_event"
+          phx-value-id={@event.id}
+          phx-target={@myself}
+          class="mt-1"
+          style={"font-size: 0.6875rem; color: #{@config.accent_text}; opacity: 0.6; transition: opacity 200ms;"}
+        >
+          show more
+        </button>
+        <button
+          :if={@long_content && @expanded}
+          phx-click="expand_event"
+          phx-value-id={@event.id}
+          phx-target={@myself}
+          class="mt-1"
+          style="font-size: 0.6875rem; color: var(--text-muted); transition: opacity 200ms;"
+        >
+          show less
+        </button>
       </div>
     </div>
     """
@@ -764,7 +958,7 @@ defmodule LoomkinWeb.TeamActivityComponent do
 
   # Fallback for any unknown event type
   defp render_event_card(assigns, event) do
-    config = Map.get(@type_config, event.type, %{label: to_string(event.type), icon: "&#9679;", bg: "bg-gray-400/20", text: "text-gray-400", border: "border-gray-500/40", card_bg: "bg-gray-900/50"})
+    config = Map.get(@type_config, event.type, fallback_config())
     expanded = MapSet.member?(assigns.expanded_ids, event.id)
 
     assigns =
@@ -774,26 +968,36 @@ defmodule LoomkinWeb.TeamActivityComponent do
       |> assign(:expanded, expanded)
 
     ~H"""
-    <div class={"rounded hover:bg-gray-900/80 transition border-l-2 #{@config.border} overflow-hidden #{@config.card_bg}"}>
-      <div class="flex items-center gap-1.5 px-2.5 py-1.5 min-w-0">
-        <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style={"background-color: #{agent_color(@event.agent)}"}></span>
+    <div
+      class="interactive overflow-hidden"
+      style={"background: var(--surface-2); border: 1px solid var(--border-subtle); border-left: 2px solid #{@config.accent}; border-radius: 0.5rem;"}
+    >
+      <div class="flex items-center gap-2 px-3 py-2 min-w-0">
+        <span class="flex-shrink-0" style={"width: 7px; height: 7px; border-radius: 9999px; background-color: #{agent_color(@event.agent)};"}></span>
         <button
           phx-click="focus_agent"
           phx-value-agent={@event.agent}
           phx-target={@myself}
-          class="text-xs font-semibold text-gray-300 hover:text-white transition flex-shrink-0"
+          class="flex-shrink-0"
+          style={"font-size: 0.75rem; font-weight: 600; color: #{agent_color(@event.agent)}; transition: opacity 200ms;"}
         >
           {@event.agent}
         </button>
-        <span class={"text-xs px-1.5 py-0.5 rounded font-medium flex-shrink-0 #{@config.bg} #{@config.text}"}>
+        <span
+          style={"display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 9999px; font-size: 0.6875rem; font-weight: 500; background: #{@config.accent_bg}; color: #{@config.accent_text}; border: 1px solid #{@config.accent_border};"}
+          class="flex-shrink-0"
+        >
           {Phoenix.HTML.raw(@config.icon)} {@config.label}
         </span>
-        <span class="text-xs text-gray-600 ml-auto flex-shrink-0">
+        <span class="ml-auto flex-shrink-0" style="font-size: 0.6875rem; font-family: var(--font-mono); color: var(--text-muted);">
           {relative_time(@event.timestamp)}
         </span>
       </div>
-      <div class="px-2.5 pb-1.5">
-        <p class={"text-xs text-gray-400 leading-snug break-words #{if !@expanded, do: "line-clamp-3"}"}>
+      <div class="px-3 pb-2">
+        <p
+          class={if !@expanded, do: "line-clamp-3"}
+          style="font-size: 0.75rem; color: var(--text-secondary); line-height: 1.5; word-break: break-word;"
+        >
           {@event.content}
         </p>
         <button
@@ -801,7 +1005,8 @@ defmodule LoomkinWeb.TeamActivityComponent do
           phx-click="expand_event"
           phx-value-id={@event.id}
           phx-target={@myself}
-          class="text-xs text-violet-400 hover:text-violet-300 mt-0.5 transition"
+          class="mt-1"
+          style="font-size: 0.6875rem; color: var(--text-brand); transition: opacity 200ms;"
         >
           show more
         </button>
@@ -888,6 +1093,10 @@ defmodule LoomkinWeb.TeamActivityComponent do
   end
 
   defp format_result_size(_), do: ""
+
+  defp fallback_config do
+    %{label: "event", icon: "&#9679;", accent: "#71717a", accent_bg: "rgba(113, 113, 122, 0.08)", accent_border: "rgba(113, 113, 122, 0.25)", accent_text: "#a1a1aa", dot_color: "#71717a"}
+  end
 
   defp type_config_list do
     [

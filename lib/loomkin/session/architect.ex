@@ -41,6 +41,25 @@ defmodule Loomkin.Session.Architect do
     architect_model = resolve_architect_model(opts)
     editor_model = resolve_editor_model(opts)
 
+    # Fast-path: skip planning for trivial messages (greetings, thanks, etc.)
+    if trivial_message?(user_text) do
+      Logger.info("[Architect] Trivial message detected — skipping planning, using conversational response")
+
+      # Save user message to conversation
+      {:ok, _} =
+        Persistence.save_message(%{session_id: state.id, role: :user, content: user_text})
+
+      user_msg = %{role: :user, content: user_text}
+      state = %{state | messages: state.messages ++ [user_msg]}
+      broadcast(state.id, {:new_message, state.id, user_msg})
+
+      conversational_fallback(user_text, state, architect_model)
+    else
+      run_planning(user_text, state, architect_model, editor_model, opts)
+    end
+  end
+
+  defp run_planning(user_text, state, architect_model, editor_model, _opts) do
     Logger.info("[Architect] Starting run — architect=#{architect_model} editor=#{editor_model} session=#{state.id}")
     broadcast(state.id, {:architect_phase, :planning})
 
@@ -137,6 +156,8 @@ defmodule Loomkin.Session.Architect do
       broadcast(state.id, {:llm_retry, state.id, %{attempt: attempt, reason: inspect(reason), backoff_ms: backoff_ms}})
     end
 
+    Logger.info("[Architect] Calling LLM provider=#{provider} model=#{model_id}")
+
     case Loomkin.LLMRetry.with_retry([on_retry: on_retry], fn ->
            LoomkinTelemetry.span_llm_request(telemetry_meta, fn ->
              call_llm(provider, model_id, req_messages, [{:session_id, state.id} | opts])
@@ -145,6 +166,7 @@ defmodule Loomkin.Session.Architect do
       {:ok, response} ->
         # Check if the architect chose to use tools (e.g. team_spawn) instead of a JSON plan
         classified = ReqLLM.Response.classify(response)
+        Logger.info("[Architect] LLM response classified as type=#{classified.type}")
 
         if classified.type == :tool_calls do
           Logger.info("[Architect] Planning phase invoked tools — executing team operations")
@@ -243,6 +265,8 @@ defmodule Loomkin.Session.Architect do
       end)
 
     response_text = Enum.join(results, "\n\n")
+
+    Logger.info("[Architect] Tool results: #{inspect(results, limit: 300)} spawned_team_ids=#{inspect(spawned_team_ids)}")
 
     # Bootstrap: send the user's request to each spawned team's lead agent
     for team_id <- spawned_team_ids do
@@ -888,6 +912,25 @@ defmodule Loomkin.Session.Architect do
   # Delegate to Registry.atomize_keys which uses a known-key allowlist
   # instead of String.to_atom, preventing atom table exhaustion from LLM output.
   defp atomize_keys(data), do: Loomkin.Tools.Registry.atomize_keys(data)
+
+  # Detect trivial messages (greetings, thanks, etc.) that should bypass architect planning.
+  # Only matches when the entire message is a short greeting — any substantial content passes through.
+  @trivial_patterns ~w(hi hello hey yo sup thanks thank cheers cool ok okay yes no bye goodbye)
+
+  defp trivial_message?(text) do
+    normalized =
+      text
+      |> String.trim()
+      |> String.downcase()
+      |> String.replace(~r/[!?.,:;]+$/, "")
+      |> String.trim()
+
+    # Only trivial if the entire message is a short greeting (≤ 3 words)
+    word_count = normalized |> String.split(~r/\s+/, trim: true) |> length()
+
+    word_count <= 3 and
+      Enum.any?(@trivial_patterns, fn pat -> String.contains?(normalized, pat) end)
+  end
 
   defp parse_model(model_string) do
     case String.split(model_string, ":", parts: 2) do

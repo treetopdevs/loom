@@ -23,7 +23,7 @@ defmodule LoomkinWeb.TeamActivityComponentTest do
 
       # All button should be highlighted (active) when no agent filter is set
       assert html =~ "All"
-      assert html =~ "bg-violet-600"
+      assert html =~ "var(--brand-subtle)"
     end
 
     test "renders type filter buttons" do
@@ -179,7 +179,8 @@ defmodule LoomkinWeb.TeamActivityComponentTest do
         })
 
       html = render_task_events([event])
-      assert html =~ "bg-blue-400/20"
+      # Badge uses inline style with accent_bg from design tokens
+      assert html =~ "rgba(96, 165, 250"
       assert html =~ "assigned"
     end
   end
@@ -300,8 +301,9 @@ defmodule LoomkinWeb.TeamActivityComponentTest do
 
     test "tool_call card has violet border and tool badge" do
       html = render_typed_events([make_typed_event(:tool_call, "coder", %{metadata: %{tool_name: "Bash"}})])
-      assert html =~ "border-violet-500/40"
-      assert html =~ "bg-violet-400/20"
+      # Uses inline style with accent hex (#818cf8) for left border
+      assert html =~ "#818cf8"
+      assert html =~ "rgba(129, 140, 248"
       assert html =~ "Bash"
     end
 
@@ -312,22 +314,25 @@ defmodule LoomkinWeb.TeamActivityComponentTest do
 
     test "message card has emerald border and shows recipient" do
       html = render_typed_events([make_typed_event(:message, "lead", %{metadata: %{from: "lead", to: "researcher"}})])
-      assert html =~ "border-emerald-500/40"
+      # Uses inline style with accent hex (#34d399) for left border
+      assert html =~ "#34d399"
       assert html =~ "researcher"
     end
 
     test "discovery card has yellow border and star icon" do
       html = render_typed_events([make_typed_event(:discovery, "researcher")])
-      assert html =~ "border-yellow-500/40"
+      # Uses inline style with accent hex (#fbbf24) for left border
+      assert html =~ "#fbbf24"
       assert html =~ "discovery"
-      # Yellow-tinted background
-      assert html =~ "bg-yellow-950/10"
+      # Amber-tinted background via accent_bg
+      assert html =~ "rgba(251, 191, 36"
     end
 
     test "error card has red border and warning icon" do
       html = render_typed_events([make_typed_event(:error, "coder")])
-      assert html =~ "border-red-500/60"
-      assert html =~ "bg-red-950/30"
+      # Uses inline style with accent hex (#f87171) for left border
+      assert html =~ "#f87171"
+      assert html =~ "rgba(248, 113, 113"
       assert html =~ "error"
     end
 
@@ -339,8 +344,9 @@ defmodule LoomkinWeb.TeamActivityComponentTest do
 
     test "question card has sky border and highlighted background" do
       html = render_typed_events([make_typed_event(:question, "researcher")])
-      assert html =~ "border-sky-500/50"
-      assert html =~ "bg-sky-950/15"
+      # Uses inline style with accent hex (#38bdf8) for left border
+      assert html =~ "#38bdf8"
+      assert html =~ "rgba(56, 189, 248"
       assert html =~ "question"
     end
 
@@ -353,13 +359,15 @@ defmodule LoomkinWeb.TeamActivityComponentTest do
 
     test "task_complete card has green tinted background" do
       html = render_typed_events([make_typed_event(:task_complete, "coder", %{metadata: %{title: "Done"}})])
-      assert html =~ "bg-green-950/20"
+      # Uses inline style with accent hex (#4ade80) and green-tinted accent_bg
+      assert html =~ "#4ade80"
       assert html =~ "done"
     end
 
     test "thinking card shows muted thinking indicator" do
       html = render_typed_events([make_typed_event(:thinking, "coder")])
-      assert html =~ "border-indigo-500/30"
+      # Uses inline style with accent hex (#818cf8) for border
+      assert html =~ "#818cf8"
       assert html =~ "thinking"
     end
 
@@ -419,7 +427,7 @@ defmodule LoomkinWeb.TeamActivityComponentTest do
 
     test "content text uses break-words for narrow viewports" do
       html = render_dense_events([make_dense_event(:message, "lead", %{content: "A long message", metadata: %{from: "lead"}})])
-      assert html =~ "break-words"
+      assert html =~ "break-word"
     end
 
     test "tool_call file path shows only basename" do
@@ -439,8 +447,8 @@ defmodule LoomkinWeb.TeamActivityComponentTest do
     test "error card with long content uses break-words" do
       long_content = String.duplicate("Error: something went wrong with a very long explanation ", 5)
       html = render_dense_events([make_dense_event(:error, "coder", %{content: long_content})])
-      # Long error content is shown in body (not header), and uses break-words
-      assert html =~ "break-words"
+      # Long error content is shown in body (not header), and uses word-break
+      assert html =~ "break-word"
     end
   end
 end
