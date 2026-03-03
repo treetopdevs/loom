@@ -162,7 +162,7 @@ defmodule LoomkinWeb.TeamActivityComponentTest do
   end
 
   describe "task_assigned card from team_assign" do
-    defp make_task_event(type, agent, opts \\ %{}) do
+    defp make_task_event(type, agent, opts) do
       Map.merge(
         %{
           id: Ecto.UUID.generate(),

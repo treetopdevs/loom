@@ -1871,6 +1871,80 @@ defmodule LoomkinWeb.WorkspaceLive do
     tool_name = payload[:tool_name]
     result_str = to_string(result)
 
+    # team_assign results are converted into structured task cards
+    if tool_name == "team_assign" do
+      merge_team_assign_result(socket, agent, result_str)
+    else
+      merge_generic_tool_result(socket, agent, tool_name, result_str)
+    end
+  end
+
+  defp merge_tool_result(socket, _), do: socket
+
+  defp merge_team_assign_result(socket, agent, result_str) do
+    task_meta = parse_team_assign_result(result_str)
+    events = socket.assigns.activity_events
+
+    # Replace the pending team_assign tool_call card with a typed task_assigned card
+    match_idx =
+      events
+      |> Enum.with_index()
+      |> Enum.reverse()
+      |> Enum.find_value(fn {ev, idx} ->
+        if ev.type == :tool_call && ev.agent == agent &&
+             (ev.metadata || %{})[:tool_name] == "team_assign" &&
+             is_nil((ev.metadata || %{})[:result]) do
+          idx
+        end
+      end)
+
+    events =
+      if match_idx do
+        List.update_at(events, match_idx, fn ev ->
+          %{
+            ev
+            | type: :task_assigned,
+              content: "Assigned task to #{task_meta[:owner] || "agent"}",
+              metadata: task_meta
+          }
+        end)
+      else
+        events ++
+          [
+            %{
+              id: Ecto.UUID.generate(),
+              type: :task_assigned,
+              agent: agent,
+              content: "Assigned task to #{task_meta[:owner] || "agent"}",
+              timestamp: DateTime.utc_now(),
+              expanded: false,
+              metadata: task_meta
+            }
+          ]
+      end
+
+    assign(socket, activity_events: events)
+  end
+
+  defp parse_team_assign_result(result_str) do
+    extract = fn key ->
+      case Regex.run(~r/#{key}:\s*(.+)/i, result_str) do
+        [_, value] -> String.trim(value)
+        _ -> nil
+      end
+    end
+
+    %{
+      title: extract.("Title"),
+      owner: extract.("Assigned to"),
+      priority: extract.("Priority"),
+      status: extract.("Status")
+    }
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    |> Map.new()
+  end
+
+  defp merge_generic_tool_result(socket, agent, tool_name, result_str) do
     # Truncate very long results but keep enough to be useful
     truncated =
       if String.length(result_str) > 2000 do
@@ -1918,8 +1992,6 @@ defmodule LoomkinWeb.WorkspaceLive do
 
     assign(socket, activity_events: events)
   end
-
-  defp merge_tool_result(socket, _), do: socket
 
   # --- Tool events: executing creates the card, complete merges result into it ---
 
