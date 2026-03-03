@@ -133,55 +133,93 @@ defmodule LoomkinWeb.WorkspaceLive do
       child_teams: child_teams,
       active_team_id: active_team_id,
       switch_project_modal: nil,
-      recent_projects: []
+      recent_projects: [],
+      reply_target: nil
     )
   end
 
   # --- Events ---
 
   def handle_event("send_message", %{"text" => text}, socket) when text != "" do
-    session_id = socket.assigns.session_id
     trimmed = String.trim(text)
-    # Send async to avoid blocking the LiveView process
-    task = Task.async(fn -> Session.send_message(session_id, trimmed) end)
 
-    # Optimistically show user message + thinking state immediately
-    user_msg = %{role: :user, content: trimmed}
+    case socket.assigns.reply_target do
+      %{agent: agent_name, team_id: team_id} ->
+        # Direct reply to a specific agent
+        Task.start(fn ->
+          case Loomkin.Teams.Manager.find_agent(team_id, agent_name) do
+            {:ok, pid} -> Loomkin.Teams.Agent.send_message(pid, trimmed)
+            _ -> :ok
+          end
+        end)
 
-    # In mission control mode, also show user message in the activity feed
-    socket =
-      if socket.assigns.mode == :mission_control do
-        user_event = %{
+        reply_event = %{
           id: Ecto.UUID.generate(),
           type: :message,
           agent: "You",
           content: trimmed,
           timestamp: DateTime.utc_now(),
           expanded: false,
-          metadata: %{from: "You", to: "Team"}
+          metadata: %{from: "You", to: agent_name}
         }
 
-        events = socket.assigns.activity_events ++ [user_event]
+        events = socket.assigns.activity_events ++ [reply_event]
 
         events =
           if length(events) > @max_activity_events,
             do: Enum.drop(events, length(events) - @max_activity_events),
             else: events
 
-        assign(socket, activity_events: events)
-      else
-        socket
-      end
+        {:noreply,
+         socket
+         |> assign(
+           input_text: "",
+           reply_target: nil,
+           activity_events: events
+         )
+         |> push_event("clear-input", %{})}
 
-    {:noreply,
-     socket
-     |> assign(
-       input_text: "",
-       async_task: task,
-       status: :thinking,
-       messages: socket.assigns.messages ++ [user_msg]
-     )
-     |> push_event("clear-input", %{})}
+      nil ->
+        # Normal flow: send through Architect pipeline
+        session_id = socket.assigns.session_id
+        task = Task.async(fn -> Session.send_message(session_id, trimmed) end)
+
+        user_msg = %{role: :user, content: trimmed}
+
+        socket =
+          if socket.assigns.mode == :mission_control do
+            user_event = %{
+              id: Ecto.UUID.generate(),
+              type: :message,
+              agent: "You",
+              content: trimmed,
+              timestamp: DateTime.utc_now(),
+              expanded: false,
+              metadata: %{from: "You", to: "Team"}
+            }
+
+            events = socket.assigns.activity_events ++ [user_event]
+
+            events =
+              if length(events) > @max_activity_events,
+                do: Enum.drop(events, length(events) - @max_activity_events),
+                else: events
+
+            assign(socket, activity_events: events)
+          else
+            socket
+          end
+
+        {:noreply,
+         socket
+         |> assign(
+           input_text: "",
+           async_task: task,
+           status: :thinking,
+           messages: socket.assigns.messages ++ [user_msg]
+         )
+         |> push_event("clear-input", %{})}
+    end
   end
 
   def handle_event("send_message", _params, socket) do
@@ -191,6 +229,20 @@ defmodule LoomkinWeb.WorkspaceLive do
   def handle_event("cancel", _params, socket) do
     Session.cancel(socket.assigns.session_id)
     {:noreply, assign(socket, status: :idle, streaming: false, streaming_content: "")}
+  end
+
+  def handle_event("reply_to_agent", %{"agent" => agent_name}, socket) do
+    # Find the agent's team_id from the roster data
+    agents = roster_agents(socket.assigns.team_id)
+    team_id = Enum.find_value(agents, socket.assigns.team_id, fn a ->
+      if a.name == agent_name, do: a.team_id
+    end)
+
+    {:noreply, assign(socket, reply_target: %{agent: agent_name, team_id: team_id})}
+  end
+
+  def handle_event("cancel_reply", _params, socket) do
+    {:noreply, assign(socket, reply_target: nil)}
   end
 
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
@@ -305,7 +357,12 @@ defmodule LoomkinWeb.WorkspaceLive do
        )}
     else
       {:noreply,
-       assign(socket, focused_agent: nil, inspector_mode: :auto_follow, permission_request: nil)}
+       assign(socket,
+         focused_agent: nil,
+         inspector_mode: :auto_follow,
+         permission_request: nil,
+         reply_target: nil
+       )}
     end
   end
 
@@ -1393,12 +1450,16 @@ defmodule LoomkinWeb.WorkspaceLive do
   defp render_input_bar(assigns) do
     ~H"""
     <form phx-submit="send_message" class="border-t border-gray-800 bg-gray-900/80 p-3 sm:p-4">
+      <div :if={@reply_target} class="flex items-center gap-2 mb-2 px-2 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+        <span class="text-xs text-emerald-400 font-medium">Replying to {@reply_target.agent}</span>
+        <button type="button" phx-click="cancel_reply" class="ml-auto text-xs text-gray-500 hover:text-gray-300">&#10005;</button>
+      </div>
       <div class="flex gap-3 items-end">
         <div class="flex-1 relative">
           <textarea
             name="text"
             rows="1"
-            placeholder="What should we work on?"
+            placeholder={if @reply_target, do: "Reply to #{@reply_target.agent}...", else: "What should we work on?"}
             class="w-full bg-gray-800/60 border border-gray-700/50 rounded-xl px-4 py-3 text-sm text-gray-100 resize-none placeholder-gray-500 placeholder:italic focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500/50 transition-shadow"
             phx-hook="ShiftEnterSubmit"
             id="message-input"
@@ -2158,6 +2219,7 @@ defmodule LoomkinWeb.WorkspaceLive do
         _other -> []
       end
       |> Enum.map(&Map.put(&1, :team_id, team_id))
+      |> Enum.reject(fn a -> a.name == "lead" end)
 
     child_agents =
       team_id

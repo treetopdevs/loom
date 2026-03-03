@@ -529,24 +529,40 @@ defmodule Loomkin.Session.Architect do
 
     ## Strategy Options
 
-    ### 1. File-based edit plan (default for simple/focused tasks)
+    ### 1. Team spawn (DEFAULT — use for most tasks)
+    Use the `team_spawn` tool to create a team of specialized agents. **This is the default strategy.**
+    Spawn a team when ANY of these apply:
+    - The task touches 2+ files
+    - The task requires reading code before changing it (research + implementation)
+    - The scope is unclear and needs exploration first
+    - The task involves exploration, analysis, or investigation
+    - The task benefits from parallel work (e.g. research while coding)
+    - The task is non-trivial in any way
+
+    **Team composition guidance:**
+    - Minimum: researcher + coder (always include both)
+    - Add a reviewer for changes to critical paths, public APIs, or security-sensitive code
+    - Add a tester when the task involves testable behavior changes
+    - Add a lead when the team has 3+ agents to coordinate work
+
+    After spawning a team, use `team_assign` to delegate specific subtasks to each agent.
+    Be specific in task descriptions — include file paths, function names, and acceptance criteria.
+
+    **When in doubt, spawn a team.** Teams are cheap; missed collaboration is expensive.
+
+    ### 2. File-based edit plan (ONLY for trivial single-file edits)
     Respond with a JSON object containing your edit plan:
     - "summary": brief description of what will be done
     - "plan": array of steps, each with "file", "action" (create/edit/delete), "description", and "details"
 
-    ### 2. Team spawn (for complex, multi-file, or parallelizable tasks)
-    Use the `team_spawn` tool to create a team of specialized agents. Do this when:
-    - The task involves 5+ files across multiple modules
-    - Independent subtasks can be parallelized (e.g. research + implementation)
-    - The task benefits from specialized roles (researcher, coder, reviewer, tester)
-
-    After spawning a team, use `team_assign` to delegate subtasks to agents.
+    Use this ONLY when:
+    - The change is a single file with obvious, mechanical edits (typo fix, config value change)
+    - No exploration or research is needed
+    - The change is completely unambiguous
 
     ## Guidelines
-    - For simple changes (1-4 files, single concern), prefer a JSON edit plan
-    - For complex changes, spawn a team and coordinate via task assignment
-    - Be thorough and specific in edit plan "details" — include exact code snippets,
-      line references, function signatures, and clear before/after descriptions
+    - Default to spawning a team — solo JSON plans are the exception, not the rule
+    - Be thorough and specific in task assignments and edit plan details
     """
   end
 

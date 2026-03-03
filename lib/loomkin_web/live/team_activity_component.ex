@@ -300,6 +300,14 @@ defmodule LoomkinWeb.TeamActivityComponent do
       <div class="px-3 pb-2.5">
         <p class="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{@event.content}</p>
       </div>
+      <button
+        :if={@from != "You" && @from != "system"}
+        phx-click="reply_to_agent"
+        phx-value-agent={@from}
+        class="text-xs text-emerald-400/60 hover:text-emerald-400 transition px-3 pb-2"
+      >
+        Reply
+      </button>
     </div>
     """
   end
