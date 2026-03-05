@@ -145,10 +145,12 @@ defmodule Loomkin.Teams.PairMode do
       timestamp: System.monotonic_time(:millisecond)
     }
 
-    signal = Loomkin.Signals.Collaboration.PairEvent.new!(
-      %{team_id: team_id},
-      subject: pair_id
-    )
+    signal =
+      Loomkin.Signals.Collaboration.PairEvent.new!(
+        %{team_id: team_id},
+        subject: pair_id
+      )
+
     Loomkin.Signals.publish(%{signal | data: Map.merge(signal.data, message)})
   end
 

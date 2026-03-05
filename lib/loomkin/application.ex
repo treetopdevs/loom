@@ -27,8 +27,7 @@ defmodule Loomkin.Application do
 
         # Jido Signal Bus for typed event routing
         {Jido.Signal.Bus,
-         name: Loomkin.SignalBus,
-         journal_adapter: Jido.Signal.Journal.Adapters.ETS},
+         name: Loomkin.SignalBus, journal_adapter: Jido.Signal.Journal.Adapters.ETS},
 
         # Telemetry metrics aggregation
         Loomkin.Telemetry.Metrics,

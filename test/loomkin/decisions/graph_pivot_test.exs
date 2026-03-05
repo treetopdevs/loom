@@ -133,7 +133,8 @@ defmodule Loomkin.Decisions.GraphPivotTest do
         assert_receive {:signal, %Jido.Signal{type: "decision.node.added"}}
       end
 
-      assert_receive {:signal, %Jido.Signal{type: "decision.pivot.created", data: %{result: ^result}}}
+      assert_receive {:signal,
+                      %Jido.Signal{type: "decision.pivot.created", data: %{result: ^result}}}
     end
 
     test "is atomic - all or nothing" do

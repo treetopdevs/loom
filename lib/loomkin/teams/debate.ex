@@ -613,10 +613,11 @@ defmodule Loomkin.Teams.Debate do
 
   defp do_collect(debate_id, phase, expected, received, acc, timeout) do
     receive do
-      {:signal, %Jido.Signal{
-        type: "collaboration.debate.response",
-        data: %{debate_id: ^debate_id, phase: ^phase, response: response}
-      }} ->
+      {:signal,
+       %Jido.Signal{
+         type: "collaboration.debate.response",
+         data: %{debate_id: ^debate_id, phase: ^phase, response: response}
+       }} ->
         from = response.from
 
         if MapSet.member?(expected, from) and not MapSet.member?(received, from) do
@@ -798,10 +799,12 @@ defmodule Loomkin.Teams.Debate do
   """
   @spec submit_response(String.t(), String.t(), atom(), map()) :: :ok
   def submit_response(team_id, debate_id, phase, response) do
-    signal = Loomkin.Signals.Collaboration.DebateResponse.new!(
-      %{debate_id: debate_id, team_id: team_id, phase: phase},
-      subject: debate_id
-    )
+    signal =
+      Loomkin.Signals.Collaboration.DebateResponse.new!(
+        %{debate_id: debate_id, team_id: team_id, phase: phase},
+        subject: debate_id
+      )
+
     Loomkin.Signals.publish(%{signal | data: Map.merge(signal.data, %{response: response})})
   end
 end

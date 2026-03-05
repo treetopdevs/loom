@@ -641,25 +641,62 @@ defmodule Loomkin.Teams.Agent do
 
   def handle_info(%Jido.Signal{type: "collaboration.peer.message"} = sig, state) do
     msg = sig.data[:message]
+
     case msg do
-      {:peer_message, from, content} -> handle_info({:peer_message, from, content}, state)
-      {:context_update, from, payload} -> handle_info({:context_update, from, payload}, state)
-      {:inject_system_message, _} = tuple -> handle_info(tuple, state)
-      {:debate_start, _, _, _} = tuple -> handle_info(tuple, state)
-      {:debate_propose, _, _, _} = tuple -> handle_info(tuple, state)
-      {:debate_critique, _, _, _} = tuple -> handle_info(tuple, state)
-      {:debate_revise, _, _, _} = tuple -> handle_info(tuple, state)
-      {:debate_vote, _, _} = tuple -> handle_info(tuple, state)
-      {:pair_started, _, _, _} = tuple -> handle_info(tuple, state)
-      {:pair_stopped, _} = tuple -> handle_info(tuple, state)
-      {:pair_broadcast, _, _, _} = tuple -> handle_info(tuple, state)
-      {:discovery_relevant, _} = tuple -> handle_info(tuple, state)
-      {:rebalance_needed, _, _} = tuple -> handle_info(tuple, state)
-      {:conflict_detected, _} = tuple -> handle_info(tuple, state)
-      {:query, _, _, _, _} = tuple -> handle_info(tuple, state)
-      {:query_answer, _, _, _, _} = tuple -> handle_info(tuple, state)
-      {:confidence_warning, _} = tuple -> handle_info(tuple, state)
-      {:sub_team_completed, _} = tuple -> handle_info(tuple, state)
+      {:peer_message, from, content} ->
+        handle_info({:peer_message, from, content}, state)
+
+      {:context_update, from, payload} ->
+        handle_info({:context_update, from, payload}, state)
+
+      {:inject_system_message, _} = tuple ->
+        handle_info(tuple, state)
+
+      {:debate_start, _, _, _} = tuple ->
+        handle_info(tuple, state)
+
+      {:debate_propose, _, _, _} = tuple ->
+        handle_info(tuple, state)
+
+      {:debate_critique, _, _, _} = tuple ->
+        handle_info(tuple, state)
+
+      {:debate_revise, _, _, _} = tuple ->
+        handle_info(tuple, state)
+
+      {:debate_vote, _, _} = tuple ->
+        handle_info(tuple, state)
+
+      {:pair_started, _, _, _} = tuple ->
+        handle_info(tuple, state)
+
+      {:pair_stopped, _} = tuple ->
+        handle_info(tuple, state)
+
+      {:pair_broadcast, _, _, _} = tuple ->
+        handle_info(tuple, state)
+
+      {:discovery_relevant, _} = tuple ->
+        handle_info(tuple, state)
+
+      {:rebalance_needed, _, _} = tuple ->
+        handle_info(tuple, state)
+
+      {:conflict_detected, _} = tuple ->
+        handle_info(tuple, state)
+
+      {:query, _, _, _, _} = tuple ->
+        handle_info(tuple, state)
+
+      {:query_answer, _, _, _, _} = tuple ->
+        handle_info(tuple, state)
+
+      {:confidence_warning, _} = tuple ->
+        handle_info(tuple, state)
+
+      {:sub_team_completed, _} = tuple ->
+        handle_info(tuple, state)
+
       _ ->
         from = sig.data[:from] || "unknown"
         content = if is_binary(msg), do: msg, else: inspect(msg)
@@ -1716,55 +1753,82 @@ defmodule Loomkin.Teams.Agent do
           Loomkin.Signals.Agent.StreamStart.new!(%{agent_name: agent_str, team_id: team_id},
             subject: "payload"
           )
-          |> Map.put(:data, Map.put(%{agent_name: agent_str, team_id: team_id}, :payload, payload))
+          |> Map.put(
+            :data,
+            Map.put(%{agent_name: agent_str, team_id: team_id}, :payload, payload)
+          )
 
         :stream_delta ->
           Loomkin.Signals.Agent.StreamDelta.new!(%{agent_name: agent_str, team_id: team_id},
             subject: "payload"
           )
-          |> Map.put(:data, Map.put(%{agent_name: agent_str, team_id: team_id}, :payload, payload))
+          |> Map.put(
+            :data,
+            Map.put(%{agent_name: agent_str, team_id: team_id}, :payload, payload)
+          )
 
         :stream_end ->
           Loomkin.Signals.Agent.StreamEnd.new!(%{agent_name: agent_str, team_id: team_id},
             subject: "payload"
           )
-          |> Map.put(:data, Map.put(%{agent_name: agent_str, team_id: team_id}, :payload, payload))
+          |> Map.put(
+            :data,
+            Map.put(%{agent_name: agent_str, team_id: team_id}, :payload, payload)
+          )
 
         :tool_executing ->
           Loomkin.Signals.Agent.ToolExecuting.new!(%{agent_name: agent_str, team_id: team_id},
             subject: "payload"
           )
-          |> Map.put(:data, Map.put(%{agent_name: agent_str, team_id: team_id}, :payload, payload))
+          |> Map.put(
+            :data,
+            Map.put(%{agent_name: agent_str, team_id: team_id}, :payload, payload)
+          )
 
         :tool_complete ->
           Loomkin.Signals.Agent.ToolComplete.new!(%{agent_name: agent_str, team_id: team_id},
             subject: "payload"
           )
-          |> Map.put(:data, Map.put(%{agent_name: agent_str, team_id: team_id}, :payload, payload))
+          |> Map.put(
+            :data,
+            Map.put(%{agent_name: agent_str, team_id: team_id}, :payload, payload)
+          )
 
         :usage ->
           Loomkin.Signals.Agent.Usage.new!(%{agent_name: agent_str, team_id: team_id},
             subject: "payload"
           )
-          |> Map.put(:data, Map.put(%{agent_name: agent_str, team_id: team_id}, :payload, payload))
+          |> Map.put(
+            :data,
+            Map.put(%{agent_name: agent_str, team_id: team_id}, :payload, payload)
+          )
 
         :context_offloaded ->
           Loomkin.Signals.Context.Offloaded.new!(%{agent_name: agent_str, team_id: team_id},
             subject: "payload"
           )
-          |> Map.put(:data, Map.put(%{agent_name: agent_str, team_id: team_id}, :payload, payload))
+          |> Map.put(
+            :data,
+            Map.put(%{agent_name: agent_str, team_id: team_id}, :payload, payload)
+          )
 
         :tool_error ->
           Loomkin.Signals.Agent.Error.new!(%{agent_name: agent_str, team_id: team_id},
             subject: "payload"
           )
-          |> Map.put(:data, Map.put(%{agent_name: agent_str, team_id: team_id}, :payload, payload))
+          |> Map.put(
+            :data,
+            Map.put(%{agent_name: agent_str, team_id: team_id}, :payload, payload)
+          )
 
         :max_iterations_exceeded ->
           Loomkin.Signals.Agent.Error.new!(%{agent_name: agent_str, team_id: team_id},
             subject: "payload"
           )
-          |> Map.put(:data, Map.put(%{agent_name: agent_str, team_id: team_id}, :payload, payload))
+          |> Map.put(
+            :data,
+            Map.put(%{agent_name: agent_str, team_id: team_id}, :payload, payload)
+          )
 
         _ ->
           nil

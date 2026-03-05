@@ -44,7 +44,10 @@ defmodule Loomkin.Decisions.AutoLogger do
   def handle_info({:signal, %Jido.Signal{} = sig}, state), do: handle_info(sig, state)
 
   # Agent joins (first time only)
-  def handle_info(%Jido.Signal{type: "agent.status", data: %{agent_name: name, status: :working}}, state) do
+  def handle_info(
+        %Jido.Signal{type: "agent.status", data: %{agent_name: name, status: :working}},
+        state
+      ) do
     if MapSet.member?(state.seen_agents, name) do
       {:noreply, state}
     else

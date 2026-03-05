@@ -21,7 +21,11 @@ defmodule Loomkin.Teams.ConflictDetectorTest do
 
   defp tool_executing_signal(agent_name, team_id, tool_name, tool_target) do
     sig = Loomkin.Signals.Agent.ToolExecuting.new!(%{agent_name: agent_name, team_id: team_id})
-    %{sig | data: Map.merge(sig.data, %{payload: %{tool_name: tool_name, tool_target: tool_target}})}
+
+    %{
+      sig
+      | data: Map.merge(sig.data, %{payload: %{tool_name: tool_name, tool_target: tool_target}})
+    }
   end
 
   describe "extract_intent/1" do
@@ -121,7 +125,10 @@ defmodule Loomkin.Teams.ConflictDetectorTest do
       assert_receive {:signal,
                       %Jido.Signal{
                         type: "collaboration.peer.message",
-                        data: %{message: {:conflict_detected, %{type: :file_conflict, description: desc}}}
+                        data: %{
+                          message:
+                            {:conflict_detected, %{type: :file_conflict, description: desc}}
+                        }
                       }},
                      1_000
 
@@ -175,17 +182,23 @@ defmodule Loomkin.Teams.ConflictDetectorTest do
 
       # Send a decision.logged signal to trigger conflict check
       pid = find_conflict_detector(team_id)
-      sig = Loomkin.Signals.Decision.DecisionLogged.new!(%{
-        node_id: node_b.id,
-        agent_name: "coder-2",
-        team_id: team_id
-      })
+
+      sig =
+        Loomkin.Signals.Decision.DecisionLogged.new!(%{
+          node_id: node_b.id,
+          agent_name: "coder-2",
+          team_id: team_id
+        })
+
       send(pid, {:signal, sig})
 
       assert_receive {:signal,
                       %Jido.Signal{
                         type: "collaboration.peer.message",
-                        data: %{message: {:conflict_detected, %{type: :decision_conflict, description: desc}}}
+                        data: %{
+                          message:
+                            {:conflict_detected, %{type: :decision_conflict, description: desc}}
+                        }
                       }},
                      1_000
 

@@ -36,7 +36,14 @@ defmodule Loomkin.Tools.PeerAskQuestionTest do
       assert result =~ query_id
       assert is_binary(query_id)
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:query, ^query_id, "alice", "How does auth work?", _enrichments}}}}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{
+                          message:
+                            {:query, ^query_id, "alice", "How does auth work?", _enrichments}
+                        }
+                      }}
     end
 
     test "broadcasts question when no target specified", %{team_id: team_id} do
@@ -46,7 +53,14 @@ defmodule Loomkin.Tools.PeerAskQuestionTest do
       assert {:ok, %{result: result}} = PeerAskQuestion.run(params, context())
 
       assert result =~ "all agents"
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:query, _query_id, "alice", "Anyone know about config?", _}}}}
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{
+                          message: {:query, _query_id, "alice", "Anyone know about config?", _}
+                        }
+                      }}
     end
 
     test "includes extra context in question", %{team_id: team_id} do
@@ -61,7 +75,12 @@ defmodule Loomkin.Tools.PeerAskQuestionTest do
 
       assert {:ok, _} = PeerAskQuestion.run(params, context())
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:query, _query_id, "alice", question, _}}}}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:query, _query_id, "alice", question, _}}
+                      }}
+
       assert question =~ "What pattern for auth?"
       assert question =~ "Context from alice: I saw JWT mentioned"
     end

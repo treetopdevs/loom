@@ -161,13 +161,22 @@ defmodule Loomkin.Channels.BridgeTest do
         :ok
       end)
 
-      send_signal(pid, "session.message.new", %{role: :assistant, content: "Hello user", agent_name: "lead"})
+      send_signal(pid, "session.message.new", %{
+        role: :assistant,
+        content: "Hello user",
+        agent_name: "lead"
+      })
 
       assert_receive {:text_sent, "[lead] Hello user"}, 500
     end
 
     test "does not forward tool messages", %{pid: pid} do
-      send_signal(pid, "session.message.new", %{role: :tool, content: "tool result", agent_name: "lead"})
+      send_signal(pid, "session.message.new", %{
+        role: :tool,
+        content: "tool result",
+        agent_name: "lead"
+      })
+
       Process.sleep(50)
 
       state = :sys.get_state(pid)
@@ -177,6 +186,7 @@ defmodule Loomkin.Channels.BridgeTest do
 
     test "does not forward empty assistant messages", %{pid: pid} do
       send_signal(pid, "session.message.new", %{role: :assistant, content: "", agent_name: "lead"})
+
       Process.sleep(50)
 
       state = :sys.get_state(pid)
@@ -515,7 +525,11 @@ defmodule Loomkin.Channels.BridgeTest do
       end)
 
       event = %{type: :discovery_shared, agents: ["a"]}
-      send(pid, {:signal, signal("collaboration.peer.message", %{message: {:collab_event, event}})})
+
+      send(
+        pid,
+        {:signal, signal("collaboration.peer.message", %{message: {:collab_event, event}})}
+      )
 
       assert_receive :info_sent, 500
     end

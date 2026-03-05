@@ -140,7 +140,12 @@ defmodule Loomkin.Teams.NestedTeamsTest do
 
       Manager.dissolve_team(sub_id)
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{target: "lead-agent", message: {:sub_team_completed, ^sub_id}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{target: "lead-agent", message: {:sub_team_completed, ^sub_id}}
+                      }},
+                     500
     end
   end
 

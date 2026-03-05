@@ -170,7 +170,13 @@ defmodule LoomkinWeb.TeamCostComponent do
     {:noreply, load_cost_data(socket)}
   end
 
-  def handle_info(%Jido.Signal{type: "agent.escalation", data: %{agent_name: agent_name, from_model: old_model, to_model: new_model}}, socket) do
+  def handle_info(
+        %Jido.Signal{
+          type: "agent.escalation",
+          data: %{agent_name: agent_name, from_model: old_model, to_model: new_model}
+        },
+        socket
+      ) do
     escalation = %{
       agent: agent_name,
       from: old_model,

@@ -93,7 +93,8 @@ defmodule Loomkin.AgentLoop.Strategies do
         updated_messages = messages ++ [assistant_msg]
         config.on_event.(:new_message, assistant_msg)
 
-        {:ok, response_text, updated_messages, %{usage: %{input_tokens: 0, output_tokens: 0, total_cost: 0}}}
+        {:ok, response_text, updated_messages,
+         %{usage: %{input_tokens: 0, output_tokens: 0, total_cost: 0}}}
 
       {:error, reason} ->
         Logger.error("Strategy #{effective_strategy} LLM error: #{inspect(reason)}")

@@ -7,6 +7,7 @@ defmodule Loomkin.Teams.RoleStrategyTest do
     test "built-in roles have reasoning_strategy" do
       for role_name <- Role.built_in_roles() do
         {:ok, role} = Role.get(role_name)
+
         assert role.reasoning_strategy in [:react, :cot, :cod, :tot, :adaptive],
                "Role #{role_name} has invalid reasoning_strategy: #{inspect(role.reasoning_strategy)}"
       end

@@ -85,7 +85,10 @@ defmodule LoomkinWeb.TeamDashboardComponent do
 
   # --- Signal handlers ---
 
-  def handle_info(%Jido.Signal{type: "agent.status", data: %{agent_name: agent_name, status: status}}, socket) do
+  def handle_info(
+        %Jido.Signal{type: "agent.status", data: %{agent_name: agent_name, status: status}},
+        socket
+      ) do
     agents =
       Enum.map(socket.assigns.agents, fn agent ->
         if agent.name == agent_name, do: %{agent | status: status}, else: agent
@@ -94,7 +97,10 @@ defmodule LoomkinWeb.TeamDashboardComponent do
     {:noreply, assign(socket, :agents, agents)}
   end
 
-  def handle_info(%Jido.Signal{type: "team.task.assigned", data: %{agent_name: agent_name}}, socket) do
+  def handle_info(
+        %Jido.Signal{type: "team.task.assigned", data: %{agent_name: agent_name}},
+        socket
+      ) do
     {:noreply, reload_tasks(socket, agent_name)}
   end
 
@@ -110,7 +116,13 @@ defmodule LoomkinWeb.TeamDashboardComponent do
     {:noreply, reload_tasks(socket, owner)}
   end
 
-  def handle_info(%Jido.Signal{type: "agent.role_changed", data: %{agent_name: agent_name, new_role: new_role}}, socket) do
+  def handle_info(
+        %Jido.Signal{
+          type: "agent.role_changed",
+          data: %{agent_name: agent_name, new_role: new_role}
+        },
+        socket
+      ) do
     agents =
       Enum.map(socket.assigns.agents, fn agent ->
         if agent.name == agent_name, do: %{agent | role: new_role}, else: agent

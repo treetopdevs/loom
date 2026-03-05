@@ -107,7 +107,13 @@ defmodule Loomkin.Decisions.SupervisionTest do
   describe "AutoLogger receives events after team creation" do
     test "logs agent_status events automatically", %{team_id: team_id} do
       # Emit a proper agent.status signal — AutoLogger subscribes to "agent.status"
-      signal = Loomkin.Signals.Agent.Status.new!(%{agent_name: "test-agent", team_id: team_id, status: :working})
+      signal =
+        Loomkin.Signals.Agent.Status.new!(%{
+          agent_name: "test-agent",
+          team_id: team_id,
+          status: :working
+        })
+
       Loomkin.Signals.publish(signal)
       Process.sleep(50)
 

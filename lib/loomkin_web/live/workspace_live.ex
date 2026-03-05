@@ -3858,14 +3858,21 @@ defmodule LoomkinWeb.WorkspaceLive do
     vote_topic = "ask_user:vote:#{question_id}"
     Loomkin.Signals.subscribe("collaboration.vote.*")
 
-    signal = Loomkin.Signals.Collaboration.PeerMessage.new!(
-      %{from: "system", team_id: team_id},
-      subject: "vote:#{question_id}"
-    )
-    Loomkin.Signals.publish(%{signal | data: Map.merge(signal.data, %{
-      message: {:peer_message, "system", collective_prompt,
-       %{reply_topic: vote_topic, question_id: question_id, options: options}}
-    })})
+    signal =
+      Loomkin.Signals.Collaboration.PeerMessage.new!(
+        %{from: "system", team_id: team_id},
+        subject: "vote:#{question_id}"
+      )
+
+    Loomkin.Signals.publish(%{
+      signal
+      | data:
+          Map.merge(signal.data, %{
+            message:
+              {:peer_message, "system", collective_prompt,
+               %{reply_topic: vote_topic, question_id: question_id, options: options}}
+          })
+    })
 
     # Collect votes in a background task and deliver the result
     Task.Supervisor.start_child(Loomkin.Teams.TaskSupervisor, fn ->

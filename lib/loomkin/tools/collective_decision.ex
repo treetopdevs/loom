@@ -129,7 +129,8 @@ defmodule Loomkin.Tools.CollectiveDecision do
 
   defp do_collect_votes(vote_id, expected, received, acc, timeout) do
     receive do
-      {:signal, %Jido.Signal{type: "collaboration.vote.response", data: %{vote_id: ^vote_id} = response}} ->
+      {:signal,
+       %Jido.Signal{type: "collaboration.vote.response", data: %{vote_id: ^vote_id} = response}} ->
         from = response.from
 
         if MapSet.member?(expected, from) and not MapSet.member?(received, from) do

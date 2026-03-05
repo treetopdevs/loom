@@ -378,7 +378,9 @@ defmodule Loomkin.Telemetry.Metrics do
   end
 
   defp broadcast_team(_team_id, {:team_llm_stop, payload}) do
-    signal = Loomkin.Signals.Team.LlmStop.new!(%{team_id: payload.team_id}, subject: payload.agent_name)
+    signal =
+      Loomkin.Signals.Team.LlmStop.new!(%{team_id: payload.team_id}, subject: payload.agent_name)
+
     Loomkin.Signals.publish(%{signal | data: Map.merge(signal.data, payload)})
   rescue
     e ->
@@ -387,12 +389,14 @@ defmodule Loomkin.Telemetry.Metrics do
   end
 
   defp broadcast_team(_team_id, {:team_escalation, payload}) do
-    signal = Loomkin.Signals.Agent.Escalation.new!(%{
-      agent_name: payload.agent_name,
-      team_id: payload.team_id,
-      from_model: payload.from_model,
-      to_model: payload.to_model
-    })
+    signal =
+      Loomkin.Signals.Agent.Escalation.new!(%{
+        agent_name: payload.agent_name,
+        team_id: payload.team_id,
+        from_model: payload.from_model,
+        to_model: payload.to_model
+      })
+
     Loomkin.Signals.publish(signal)
   rescue
     e ->

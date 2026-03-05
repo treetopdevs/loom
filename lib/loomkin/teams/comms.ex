@@ -36,9 +36,7 @@ defmodule Loomkin.Teams.Comms do
   @doc "Broadcast a message to the entire team."
   def broadcast(team_id, message) do
     signal =
-      Loomkin.Signals.Collaboration.PeerMessage.new!(
-        %{from: "system", team_id: team_id}
-      )
+      Loomkin.Signals.Collaboration.PeerMessage.new!(%{from: "system", team_id: team_id})
 
     %{signal | data: Map.merge(signal.data, %{message: message})}
     |> Causality.attach(team_id: team_id)

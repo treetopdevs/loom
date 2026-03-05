@@ -65,7 +65,10 @@ defmodule Loomkin.Teams.Rebalancer do
   def handle_info({:signal, %Jido.Signal{} = sig}, state), do: handle_info(sig, state)
 
   # Track agent status transitions
-  def handle_info(%Jido.Signal{type: "agent.status", data: %{agent_name: name, status: :working}}, state) do
+  def handle_info(
+        %Jido.Signal{type: "agent.status", data: %{agent_name: name, status: :working}},
+        state
+      ) do
     now = System.monotonic_time(:millisecond)
     name = to_string(name)
 
@@ -77,7 +80,10 @@ defmodule Loomkin.Teams.Rebalancer do
     {:noreply, state}
   end
 
-  def handle_info(%Jido.Signal{type: "agent.status", data: %{agent_name: name, status: status}}, state)
+  def handle_info(
+        %Jido.Signal{type: "agent.status", data: %{agent_name: name, status: status}},
+        state
+      )
       when status in [:idle, :done, :error] do
     name = to_string(name)
 
@@ -94,11 +100,17 @@ defmodule Loomkin.Teams.Rebalancer do
   end
 
   # Track activity signals
-  def handle_info(%Jido.Signal{type: "agent.tool.complete", data: %{agent_name: agent_name}}, state) do
+  def handle_info(
+        %Jido.Signal{type: "agent.tool.complete", data: %{agent_name: agent_name}},
+        state
+      ) do
     {:noreply, record_activity(state, to_string(agent_name))}
   end
 
-  def handle_info(%Jido.Signal{type: "agent.tool.executing", data: %{agent_name: agent_name}}, state) do
+  def handle_info(
+        %Jido.Signal{type: "agent.tool.executing", data: %{agent_name: agent_name}},
+        state
+      ) do
     {:noreply, record_activity(state, to_string(agent_name))}
   end
 

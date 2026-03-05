@@ -46,7 +46,12 @@ defmodule Loomkin.Teams.OrchestrationTest do
         TeamManager.spawn_agent(team_id, "worker", :coder, project_path: @project_path)
 
       # Agent init broadcast
-      assert_receive {:signal, %Jido.Signal{type: "agent.status", data: %{agent_name: "worker", status: :idle}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "agent.status",
+                        data: %{agent_name: "worker", status: :idle}
+                      }},
+                     500
 
       # Task lifecycle
       {:ok, task} = Tasks.create_task(team_id, %{title: "Ordered task"})
@@ -55,7 +60,11 @@ defmodule Loomkin.Teams.OrchestrationTest do
       assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message"}}, 500
 
       {:ok, _} = Tasks.assign_task(task.id, "worker")
-      assert_receive {:signal, %Jido.Signal{type: "team.task.assigned", data: %{task_id: task_id}}}, 500
+
+      assert_receive {:signal,
+                      %Jido.Signal{type: "team.task.assigned", data: %{task_id: task_id}}},
+                     500
+
       assert task_id == task.id
 
       {:ok, _} = Tasks.start_task(task.id)

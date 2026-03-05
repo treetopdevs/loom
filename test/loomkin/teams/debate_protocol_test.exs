@@ -288,8 +288,19 @@ defmodule Loomkin.Teams.DebateProtocolTest do
           )
         end)
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_start, debate_id, "consensus test", _}}}}, 500
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_propose, ^debate_id, 1, _}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:debate_start, debate_id, "consensus test", _}}
+                      }},
+                     500
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:debate_propose, ^debate_id, 1, _}}
+                      }},
+                     500
 
       # Both propose the same thing
       Debate.submit_response(team_id, debate_id, :proposal, %{
@@ -303,7 +314,12 @@ defmodule Loomkin.Teams.DebateProtocolTest do
       })
 
       # Skip critique/revise, then vote unanimously
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_vote, ^debate_id, _proposals}}}}, 5_000
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:debate_vote, ^debate_id, _proposals}}
+                      }},
+                     5_000
 
       Debate.submit_response(team_id, debate_id, :vote, %{from: "alice", choice: "alice"})
       Debate.submit_response(team_id, debate_id, :vote, %{from: "bob", choice: "alice"})
@@ -333,8 +349,19 @@ defmodule Loomkin.Teams.DebateProtocolTest do
           )
         end)
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_start, debate_id, "escalation test", _opts}}}}, 500
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_propose, ^debate_id, 1, _}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:debate_start, debate_id, "escalation test", _opts}}
+                      }},
+                     500
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:debate_propose, ^debate_id, 1, _}}
+                      }},
+                     500
 
       # All three propose different things
       Debate.submit_response(team_id, debate_id, :proposal, %{
@@ -353,7 +380,12 @@ defmodule Loomkin.Teams.DebateProtocolTest do
       })
 
       # Vote: each votes for themselves (3-way split, no supermajority)
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_vote, ^debate_id, _proposals}}}}, 5_000
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:debate_vote, ^debate_id, _proposals}}
+                      }},
+                     5_000
 
       Debate.submit_response(team_id, debate_id, :vote, %{from: "alice", choice: "alice"})
       Debate.submit_response(team_id, debate_id, :vote, %{from: "bob", choice: "bob"})
@@ -439,10 +471,20 @@ defmodule Loomkin.Teams.DebateProtocolTest do
           )
         end)
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_start, debate_id, "early stop test", _}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:debate_start, debate_id, "early stop test", _}}
+                      }},
+                     500
 
       # Round 1: both propose the same thing
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_propose, ^debate_id, 1, _}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:debate_propose, ^debate_id, 1, _}}
+                      }},
+                     500
 
       Debate.submit_response(team_id, debate_id, :proposal, %{
         from: "alice",
@@ -455,7 +497,12 @@ defmodule Loomkin.Teams.DebateProtocolTest do
       })
 
       # Let critique/revise timeout, then handle vote
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_vote, ^debate_id, _proposals}}}}, 5_000
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:debate_vote, ^debate_id, _proposals}}
+                      }},
+                     5_000
 
       Debate.submit_response(team_id, debate_id, :vote, %{from: "alice", choice: "alice"})
       Debate.submit_response(team_id, debate_id, :vote, %{from: "bob", choice: "alice"})

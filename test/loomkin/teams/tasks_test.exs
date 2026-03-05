@@ -27,7 +27,13 @@ defmodule Loomkin.Teams.TasksTest do
 
     test "broadcasts task_created event", %{team_id: team_id} do
       {:ok, task} = Tasks.create_task(team_id, %{title: "Broadcast test"})
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:task_created, task_id, "Broadcast test"}}}}
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:task_created, task_id, "Broadcast test"}}
+                      }}
+
       assert task_id == task.id
     end
 
@@ -55,8 +61,18 @@ defmodule Loomkin.Teams.TasksTest do
       {:ok, task} = Tasks.create_task(team_id, %{title: "Assign broadcast"})
       Tasks.assign_task(task.id, "bob")
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:task_created, _, "Assign broadcast"}}}}
-      assert_receive {:signal, %Jido.Signal{type: "team.task.assigned", data: %{task_id: task_id, agent_name: "bob"}}}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:task_created, _, "Assign broadcast"}}
+                      }}
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "team.task.assigned",
+                        data: %{task_id: task_id, agent_name: "bob"}
+                      }}
+
       assert task_id == task.id
     end
   end
@@ -210,7 +226,12 @@ defmodule Loomkin.Teams.TasksTest do
       Tasks.assign_task(blocker.id, "coder")
       Tasks.complete_task(blocker.id, "done")
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:tasks_unblocked, ids}}}}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:tasks_unblocked, ids}}
+                      }}
+
       assert blocked.id in ids
     end
   end

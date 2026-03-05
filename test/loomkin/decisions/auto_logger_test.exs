@@ -17,22 +17,38 @@ defmodule Loomkin.Decisions.AutoLoggerTest do
   end
 
   defp send_status(pid, agent_name, team_id, status) do
-    sig = Loomkin.Signals.Agent.Status.new!(%{agent_name: agent_name, team_id: team_id, status: status})
+    sig =
+      Loomkin.Signals.Agent.Status.new!(%{
+        agent_name: agent_name,
+        team_id: team_id,
+        status: status
+      })
+
     send(pid, {:signal, sig})
   end
 
   defp send_task_assigned(pid, task_id, agent_name, team_id) do
-    sig = Loomkin.Signals.Team.TaskAssigned.new!(%{task_id: task_id, agent_name: agent_name, team_id: team_id})
+    sig =
+      Loomkin.Signals.Team.TaskAssigned.new!(%{
+        task_id: task_id,
+        agent_name: agent_name,
+        team_id: team_id
+      })
+
     send(pid, {:signal, sig})
   end
 
   defp send_task_completed(pid, task_id, owner, team_id) do
-    sig = Loomkin.Signals.Team.TaskCompleted.new!(%{task_id: task_id, owner: owner, team_id: team_id})
+    sig =
+      Loomkin.Signals.Team.TaskCompleted.new!(%{task_id: task_id, owner: owner, team_id: team_id})
+
     send(pid, {:signal, sig})
   end
 
   defp send_task_failed(pid, task_id, owner, team_id) do
-    sig = Loomkin.Signals.Team.TaskFailed.new!(%{task_id: task_id, owner: owner, team_id: team_id})
+    sig =
+      Loomkin.Signals.Team.TaskFailed.new!(%{task_id: task_id, owner: owner, team_id: team_id})
+
     send(pid, {:signal, sig})
   end
 
@@ -93,7 +109,10 @@ defmodule Loomkin.Decisions.AutoLoggerTest do
       assert node.metadata["auto_logged"] == true
     end
 
-    test "task_completed creates outcome node with edge from task action", %{team_id: team_id, logger_pid: pid} do
+    test "task_completed creates outcome node with edge from task action", %{
+      team_id: team_id,
+      logger_pid: pid
+    } do
       {:ok, task} = create_task(team_id, "Fix bug Y")
 
       send_task_assigned(pid, task.id, "bob", team_id)
@@ -131,15 +150,20 @@ defmodule Loomkin.Decisions.AutoLoggerTest do
   end
 
   describe "keeper_created events" do
-    test "creates observation node with keeper_id in metadata", %{team_id: team_id, logger_pid: pid} do
+    test "creates observation node with keeper_id in metadata", %{
+      team_id: team_id,
+      logger_pid: pid
+    } do
       keeper_id = Ecto.UUID.generate()
 
-      sig = Loomkin.Signals.Context.KeeperCreated.new!(%{
-        id: keeper_id,
-        topic: "auth-research",
-        source: "alice",
-        team_id: team_id
-      })
+      sig =
+        Loomkin.Signals.Context.KeeperCreated.new!(%{
+          id: keeper_id,
+          topic: "auth-research",
+          source: "alice",
+          team_id: team_id
+        })
+
       send(pid, {:signal, sig})
 
       Process.sleep(50)

@@ -29,7 +29,16 @@ defmodule Loomkin.Teams.RebalancerTest do
     test "tracks working agents on status events", %{team_id: team_id} do
       {:ok, pid} = Rebalancer.start_link(team_id: team_id, check_interval: 100_000)
 
-      send(pid, {:signal, Loomkin.Signals.Agent.Status.new!(%{agent_name: "alice", team_id: team_id, status: :working})})
+      send(
+        pid,
+        {:signal,
+         Loomkin.Signals.Agent.Status.new!(%{
+           agent_name: "alice",
+           team_id: team_id,
+           status: :working
+         })}
+      )
+
       Process.sleep(50)
 
       state = :sys.get_state(pid)
@@ -42,10 +51,28 @@ defmodule Loomkin.Teams.RebalancerTest do
     test "clears tracking when agent becomes idle", %{team_id: team_id} do
       {:ok, pid} = Rebalancer.start_link(team_id: team_id, check_interval: 100_000)
 
-      send(pid, {:signal, Loomkin.Signals.Agent.Status.new!(%{agent_name: "alice", team_id: team_id, status: :working})})
+      send(
+        pid,
+        {:signal,
+         Loomkin.Signals.Agent.Status.new!(%{
+           agent_name: "alice",
+           team_id: team_id,
+           status: :working
+         })}
+      )
+
       Process.sleep(50)
 
-      send(pid, {:signal, Loomkin.Signals.Agent.Status.new!(%{agent_name: "alice", team_id: team_id, status: :idle})})
+      send(
+        pid,
+        {:signal,
+         Loomkin.Signals.Agent.Status.new!(%{
+           agent_name: "alice",
+           team_id: team_id,
+           status: :idle
+         })}
+      )
+
       Process.sleep(50)
 
       state = :sys.get_state(pid)
@@ -60,7 +87,16 @@ defmodule Loomkin.Teams.RebalancerTest do
     test "records activity from tool results", %{team_id: team_id} do
       {:ok, pid} = Rebalancer.start_link(team_id: team_id, check_interval: 100_000)
 
-      send(pid, {:signal, Loomkin.Signals.Agent.Status.new!(%{agent_name: "alice", team_id: team_id, status: :working})})
+      send(
+        pid,
+        {:signal,
+         Loomkin.Signals.Agent.Status.new!(%{
+           agent_name: "alice",
+           team_id: team_id,
+           status: :working
+         })}
+      )
+
       Process.sleep(50)
 
       old_state = :sys.get_state(pid)
@@ -68,11 +104,15 @@ defmodule Loomkin.Teams.RebalancerTest do
 
       Process.sleep(10)
 
-      send(pid, {:signal, Loomkin.Signals.Agent.ToolComplete.new!(%{
-        agent_name: "alice",
-        team_id: team_id,
-        tool_name: "file_read"
-      })})
+      send(
+        pid,
+        {:signal,
+         Loomkin.Signals.Agent.ToolComplete.new!(%{
+           agent_name: "alice",
+           team_id: team_id,
+           tool_name: "file_read"
+         })}
+      )
 
       Process.sleep(50)
 
@@ -90,11 +130,15 @@ defmodule Loomkin.Teams.RebalancerTest do
         %{state | nudge_counts: Map.put(state.nudge_counts, "alice", 1)}
       end)
 
-      send(pid, {:signal, Loomkin.Signals.Agent.ToolComplete.new!(%{
-        agent_name: "alice",
-        team_id: team_id,
-        tool_name: "shell"
-      })})
+      send(
+        pid,
+        {:signal,
+         Loomkin.Signals.Agent.ToolComplete.new!(%{
+           agent_name: "alice",
+           team_id: team_id,
+           tool_name: "shell"
+         })}
+      )
 
       Process.sleep(50)
 

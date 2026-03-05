@@ -72,7 +72,13 @@ defmodule Loomkin.Decisions.NervousSystemIntegrationTest do
       Loomkin.Signals.publish(%{signal | data: Map.put(signal.data, :node, obs)})
 
       # Agent A should receive discovery notification (via Comms.send_to -> peer.message signal)
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:discovery_relevant, payload}}}}, 1000
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:discovery_relevant, payload}}
+                      }},
+                     1000
+
       assert payload.observation_id == obs.id
       assert payload.observation_title == "Found security vulnerability in provider X"
       assert payload.goal_id == goal.id
@@ -90,13 +96,15 @@ defmodule Loomkin.Decisions.NervousSystemIntegrationTest do
       keeper_id = Ecto.UUID.generate()
 
       # Emit a proper context.keeper.created signal (AutoLogger subscribes to this type)
-      signal = Loomkin.Signals.Context.KeeperCreated.new!(%{
-        id: keeper_id,
-        topic: "authentication-research",
-        source: "agent-b",
-        team_id: team_id,
-        tokens: 1200
-      })
+      signal =
+        Loomkin.Signals.Context.KeeperCreated.new!(%{
+          id: keeper_id,
+          topic: "authentication-research",
+          source: "agent-b",
+          team_id: team_id,
+          tokens: 1200
+        })
+
       Loomkin.Signals.publish(signal)
 
       Process.sleep(100)
@@ -164,7 +172,12 @@ defmodule Loomkin.Decisions.NervousSystemIntegrationTest do
       assert updated_action.metadata["upstream_uncertainty"] == true
 
       # Agent "coder" should receive confidence_warning (via Comms.send_to -> peer.message signal)
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:confidence_warning, warning}}}}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:confidence_warning, warning}}
+                      }}
+
       assert warning.source_node_id == decision.id
       assert warning.source_title == "Use GraphQL"
       assert warning.source_confidence == 30

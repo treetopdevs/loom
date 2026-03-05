@@ -8,7 +8,14 @@ defmodule Loomkin.Teams.Role do
   for all built-in roles — meaning "use whatever the user configured."
   """
 
-  defstruct [:name, :model_tier, :tools, :system_prompt, :budget_limit, reasoning_strategy: :react]
+  defstruct [
+    :name,
+    :model_tier,
+    :tools,
+    :system_prompt,
+    :budget_limit,
+    reasoning_strategy: :react
+  ]
 
   @type reasoning_strategy :: :react | :cot | :cod | :tot | :adaptive
 

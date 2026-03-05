@@ -32,7 +32,10 @@ defmodule Loomkin.Teams.CrossTeamTest do
       # First we receive the child's own broadcast
       assert_receive {:signal, %Jido.Signal{type: "context.update"}}, 500
       # Then we receive the propagated signal to parent
-      assert_receive {:signal, %Jido.Signal{type: "context.update", data: %{payload: propagated}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{type: "context.update", data: %{payload: propagated}}},
+                     500
+
       assert propagated.source_team == child_a
       assert propagated.content == "Key finding about auth"
       assert propagated.type == "insight"
@@ -48,7 +51,11 @@ defmodule Loomkin.Teams.CrossTeamTest do
       Comms.broadcast_context(child_a, payload)
 
       assert_receive {:signal, %Jido.Signal{type: "context.update"}}, 500
-      assert_receive {:signal, %Jido.Signal{type: "context.update", data: %{payload: propagated}}}, 500
+
+      assert_receive {:signal,
+                      %Jido.Signal{type: "context.update", data: %{payload: propagated}}},
+                     500
+
       assert propagated.source_team == child_a
       assert propagated.type == "blocker"
     end
@@ -63,7 +70,11 @@ defmodule Loomkin.Teams.CrossTeamTest do
       Comms.broadcast_context(child_a, payload)
 
       assert_receive {:signal, %Jido.Signal{type: "context.update"}}, 500
-      assert_receive {:signal, %Jido.Signal{type: "context.update", data: %{payload: propagated}}}, 500
+
+      assert_receive {:signal,
+                      %Jido.Signal{type: "context.update", data: %{payload: propagated}}},
+                     500
+
       assert propagated.source_team == child_a
       assert propagated.type == "discovery"
     end
@@ -78,7 +89,11 @@ defmodule Loomkin.Teams.CrossTeamTest do
       Comms.broadcast_context(child_a, payload)
 
       assert_receive {:signal, %Jido.Signal{type: "context.update"}}, 500
-      assert_receive {:signal, %Jido.Signal{type: "context.update", data: %{payload: propagated}}}, 500
+
+      assert_receive {:signal,
+                      %Jido.Signal{type: "context.update", data: %{payload: propagated}}},
+                     500
+
       assert propagated.source_team == child_a
       assert propagated.type == "warning"
     end
@@ -94,7 +109,10 @@ defmodule Loomkin.Teams.CrossTeamTest do
 
       # Should receive the child's own broadcast but NOT a propagated one
       assert_receive {:signal, %Jido.Signal{type: "context.update"}}, 500
-      refute_receive {:signal, %Jido.Signal{type: "context.update", data: %{payload: %{source_team: _}}}}, 100
+
+      refute_receive {:signal,
+                      %Jido.Signal{type: "context.update", data: %{payload: %{source_team: _}}}},
+                     100
     end
 
     test "propagation can be disabled with propagate_up: false", %{
@@ -108,7 +126,10 @@ defmodule Loomkin.Teams.CrossTeamTest do
 
       # Should receive the child's own broadcast but NOT a propagated one
       assert_receive {:signal, %Jido.Signal{type: "context.update"}}, 500
-      refute_receive {:signal, %Jido.Signal{type: "context.update", data: %{payload: %{source_team: _}}}}, 100
+
+      refute_receive {:signal,
+                      %Jido.Signal{type: "context.update", data: %{payload: %{source_team: _}}}},
+                     100
     end
 
     test "root team discovery does not crash (no parent)", %{parent_id: parent_id} do
@@ -117,7 +138,9 @@ defmodule Loomkin.Teams.CrossTeamTest do
       payload = %{from: "lead", type: "insight", content: "Top-level insight"}
       Comms.broadcast_context(parent_id, payload)
 
-      assert_receive {:signal, %Jido.Signal{type: "context.update", data: %{payload: received}}}, 500
+      assert_receive {:signal, %Jido.Signal{type: "context.update", data: %{payload: received}}},
+                     500
+
       assert received.content == "Top-level insight"
       refute Map.has_key?(received, :source_team)
     end
@@ -128,7 +151,9 @@ defmodule Loomkin.Teams.CrossTeamTest do
       payload = %{from: "researcher", type: "insight", content: "Shared finding"}
       Comms.broadcast_context(child_a, payload)
 
-      assert_receive {:signal, %Jido.Signal{type: "context.update", data: %{payload: received}}}, 500
+      assert_receive {:signal, %Jido.Signal{type: "context.update", data: %{payload: received}}},
+                     500
+
       assert received.content == "Shared finding"
     end
   end
@@ -182,7 +207,12 @@ defmodule Loomkin.Teams.CrossTeamTest do
 
       Comms.send_cross_team(child_b, "researcher", {:hello, "from child_a"})
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{target: "researcher", message: {:hello, "from child_a"}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{target: "researcher", message: {:hello, "from child_a"}}
+                      }},
+                     500
     end
 
     test "broadcast_to_children delivers to all child teams", %{
@@ -194,8 +224,19 @@ defmodule Loomkin.Teams.CrossTeamTest do
 
       Comms.broadcast_to_children(parent_id, {:announcement, "from parent"})
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:announcement, "from parent"}}}}, 500
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:announcement, "from parent"}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:announcement, "from parent"}}
+                      }},
+                     500
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:announcement, "from parent"}}
+                      }},
+                     500
     end
 
     test "broadcast_to_siblings delivers to sibling teams", %{
@@ -206,7 +247,12 @@ defmodule Loomkin.Teams.CrossTeamTest do
 
       Comms.broadcast_to_siblings(child_a, {:sibling_msg, "hello sibling"})
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:sibling_msg, "hello sibling"}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:sibling_msg, "hello sibling"}}
+                      }},
+                     500
     end
 
     test "broadcast_to_siblings returns :ok for root team", %{parent_id: parent_id} do
@@ -259,12 +305,30 @@ defmodule Loomkin.Teams.CrossTeamTest do
         QueryRouter.ask_cross_team(child_a, child_b, "alice", "What is the DB schema?")
 
       # child_b should receive the broadcast query as a peer message with the query tuple
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:query, ^query_id, "alice", "What is the DB schema?", %{source_team: ^child_a}}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{
+                          message:
+                            {:query, ^query_id, "alice", "What is the DB schema?",
+                             %{source_team: ^child_a}}
+                        }
+                      }},
+                     500
 
       # Answer the query — should route back to child_a
       :ok = QueryRouter.answer(query_id, "bob", "Users table with name and email columns")
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:query_answer, ^query_id, "bob", "Users table with name and email columns", _enrichments}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{
+                          message:
+                            {:query_answer, ^query_id, "bob",
+                             "Users table with name and email columns", _enrichments}
+                        }
+                      }},
+                     500
     end
 
     test "ask_cross_team to specific agent", %{child_a: child_a, child_b: child_b} do
@@ -275,7 +339,14 @@ defmodule Loomkin.Teams.CrossTeamTest do
       {:ok, query_id} =
         QueryRouter.ask_cross_team(child_a, child_b, "alice", "Help?", target: "bob")
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:query, ^query_id, "alice", "Help?", %{source_team: ^child_a}}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{
+                          message: {:query, ^query_id, "alice", "Help?", %{source_team: ^child_a}}
+                        }
+                      }},
+                     500
     end
   end
 end

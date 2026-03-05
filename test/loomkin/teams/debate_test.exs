@@ -40,7 +40,15 @@ defmodule Loomkin.Teams.DebateTest do
         end)
 
       # Both should receive debate_start via signal
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_start, debate_id, "best framework", ["alice", "bob"]}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{
+                          message: {:debate_start, debate_id, "best framework", ["alice", "bob"]}
+                        }
+                      }},
+                     500
+
       assert is_binary(debate_id)
 
       # Let it timeout (we won't respond)
@@ -63,8 +71,19 @@ defmodule Loomkin.Teams.DebateTest do
         end)
 
       # Wait for propose phase
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_start, debate_id, "architecture", _}}}}, 500
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_propose, ^debate_id, 1, "architecture"}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:debate_start, debate_id, "architecture", _}}
+                      }},
+                     500
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:debate_propose, ^debate_id, 1, "architecture"}}
+                      }},
+                     500
 
       # Submit proposals
       Debate.submit_response(team_id, debate_id, :proposal, %{
@@ -80,7 +99,12 @@ defmodule Loomkin.Teams.DebateTest do
       })
 
       # Wait for critique phase and let it timeout
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_critique, ^debate_id, 1, _others}}}}, 1_000
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:debate_critique, ^debate_id, 1, _others}}
+                      }},
+                     1_000
 
       # Let remaining phases timeout
       {:ok, result} = Task.await(task, 10_000)
@@ -125,7 +149,12 @@ defmodule Loomkin.Teams.DebateTest do
       response = %{from: "alice", content: "my proposal"}
       Debate.submit_response(team_id, debate_id, :proposal, response)
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.debate.response", data: %{debate_id: ^debate_id, phase: :proposal, response: ^response}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.debate.response",
+                        data: %{debate_id: ^debate_id, phase: :proposal, response: ^response}
+                      }},
+                     500
     end
   end
 
@@ -144,10 +173,20 @@ defmodule Loomkin.Teams.DebateTest do
         end)
 
       # Wait for debate_start and get the debate_id
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_start, debate_id, "language", _}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:debate_start, debate_id, "language", _}}
+                      }},
+                     500
 
       # Submit proposals
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_propose, ^debate_id, 1, _}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:debate_propose, ^debate_id, 1, _}}
+                      }},
+                     500
 
       Debate.submit_response(team_id, debate_id, :proposal, %{
         from: "alice",
@@ -165,7 +204,12 @@ defmodule Loomkin.Teams.DebateTest do
       })
 
       # Skip critique/revise (let them timeout), then submit votes
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_vote, ^debate_id, _proposals}}}}, 5_000
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:debate_vote, ^debate_id, _proposals}}
+                      }},
+                     5_000
 
       Debate.submit_response(team_id, debate_id, :vote, %{from: "alice", choice: "alice"})
       Debate.submit_response(team_id, debate_id, :vote, %{from: "bob", choice: "alice"})

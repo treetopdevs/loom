@@ -89,7 +89,8 @@ defmodule Loomkin.Teams.AgentTest do
       %{pid: pid, team_id: team_id} = start_agent()
 
       # Send a message on the team topic — agent should handle it
-      send(pid,
+      send(
+        pid,
         {:context_update, "peer-1", %{info: "test data"}}
       )
 
@@ -173,7 +174,8 @@ defmodule Loomkin.Teams.AgentTest do
     test "stores context from peers" do
       %{pid: pid, team_id: team_id} = start_agent()
 
-      send(pid,
+      send(
+        pid,
         {:context_update, "researcher", %{files: ["lib/foo.ex"]}}
       )
 
@@ -186,13 +188,15 @@ defmodule Loomkin.Teams.AgentTest do
     test "updates replace previous context from same peer" do
       %{pid: pid, team_id: team_id} = start_agent()
 
-      send(pid,
+      send(
+        pid,
         {:context_update, "researcher", %{v: 1}}
       )
 
       Process.sleep(50)
 
-      send(pid,
+      send(
+        pid,
         {:context_update, "researcher", %{v: 2}}
       )
 
@@ -249,7 +253,8 @@ defmodule Loomkin.Teams.AgentTest do
     test "injects system message with observation and goal" do
       %{pid: pid, team_id: team_id} = start_agent()
 
-      send(pid,
+      send(
+        pid,
         {:discovery_relevant,
          %{
            observation_title: "Cache hit rate dropped",
@@ -274,7 +279,8 @@ defmodule Loomkin.Teams.AgentTest do
     test "includes keeper reference when keeper_id is present" do
       %{pid: pid, team_id: team_id} = start_agent()
 
-      send(pid,
+      send(
+        pid,
         {:discovery_relevant,
          %{
            observation_title: "Memory leak found",
@@ -296,7 +302,8 @@ defmodule Loomkin.Teams.AgentTest do
     test "injects system message with confidence warning" do
       %{pid: pid, team_id: team_id} = start_agent()
 
-      send(pid,
+      send(
+        pid,
         {:confidence_warning,
          %{
            source_title: "Use PostgreSQL",
@@ -321,7 +328,8 @@ defmodule Loomkin.Teams.AgentTest do
     test "includes keeper reference when keeper_id is present" do
       %{pid: pid, team_id: team_id} = start_agent()
 
-      send(pid,
+      send(
+        pid,
         {:confidence_warning,
          %{
            source_title: "Use Redis",
@@ -341,7 +349,8 @@ defmodule Loomkin.Teams.AgentTest do
     test "multiple nervous system messages accumulate" do
       %{pid: pid, team_id: team_id} = start_agent()
 
-      send(pid,
+      send(
+        pid,
         {:discovery_relevant,
          %{
            observation_title: "Obs 1",
@@ -351,7 +360,8 @@ defmodule Loomkin.Teams.AgentTest do
          }}
       )
 
-      send(pid,
+      send(
+        pid,
         {:confidence_warning,
          %{
            source_title: "Decision X",

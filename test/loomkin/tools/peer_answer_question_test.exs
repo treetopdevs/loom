@@ -36,7 +36,11 @@ defmodule Loomkin.Tools.PeerAnswerQuestionTest do
       assert result =~ "Answer delivered"
       assert result =~ query_id
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:query_answer, ^query_id, "bob", "The answer is 42", _}}}}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:query_answer, ^query_id, "bob", "The answer is 42", _}}
+                      }}
     end
 
     test "returns friendly message for unknown query", %{team_id: team_id} do

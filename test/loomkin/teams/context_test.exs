@@ -188,7 +188,13 @@ defmodule Loomkin.Teams.ContextTest do
       Loomkin.Signals.subscribe("collaboration.**")
 
       Context.broadcast_intent(team_id, "alice", "lib/foo.ex", "refactoring module")
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:intent, "alice", "lib/foo.ex", "refactoring module"}}}}, 500
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:intent, "alice", "lib/foo.ex", "refactoring module"}}
+                      }},
+                     500
     end
   end
 

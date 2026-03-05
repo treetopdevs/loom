@@ -29,14 +29,25 @@ defmodule Loomkin.Teams.QueryRouterTest do
       {:ok, query_id} = QueryRouter.ask(team_id, "alice", "Where is the config?")
 
       assert is_binary(query_id)
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:query, ^query_id, "alice", "Where is the config?", []}}}}, 500
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:query, ^query_id, "alice", "Where is the config?", []}}
+                      }},
+                     500
     end
 
     test "sends targeted query to specific agent", %{team_id: team_id} do
       Comms.subscribe(team_id, "bob")
       {:ok, query_id} = QueryRouter.ask(team_id, "alice", "Help me?", target: "bob")
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:query, ^query_id, "alice", "Help me?", []}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:query, ^query_id, "alice", "Help me?", []}}
+                      }},
+                     500
     end
   end
 
@@ -46,7 +57,15 @@ defmodule Loomkin.Teams.QueryRouterTest do
       {:ok, query_id} = QueryRouter.ask(team_id, "alice", "Question?", target: "bob")
 
       assert :ok = QueryRouter.answer(query_id, "bob", "The answer is 42")
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:query_answer, ^query_id, "bob", "The answer is 42", []}}}}, 500
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{
+                          message: {:query_answer, ^query_id, "bob", "The answer is 42", []}
+                        }
+                      }},
+                     500
     end
 
     test "returns error for unknown query" do
@@ -60,7 +79,17 @@ defmodule Loomkin.Teams.QueryRouterTest do
       {:ok, query_id} = QueryRouter.ask(team_id, "alice", "Complex Q?", target: "bob")
 
       assert :ok = QueryRouter.forward(query_id, "bob", "carol", "bob's note: check lib/foo.ex")
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:query, ^query_id, "bob", "Complex Q?", ["bob's note: check lib/foo.ex"]}}}}, 500
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{
+                          message:
+                            {:query, ^query_id, "bob", "Complex Q?",
+                             ["bob's note: check lib/foo.ex"]}
+                        }
+                      }},
+                     500
     end
 
     test "respects max_hops limit", %{team_id: team_id} do
@@ -114,7 +143,14 @@ defmodule Loomkin.Teams.QueryRouterTest do
       {:ok, query_id} = QueryRouter.ask(team_id, "alice", "What is the auth format?")
 
       # No keepers exist, so enrichments should be empty
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:query, ^query_id, "alice", "What is the auth format?", []}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{
+                          message: {:query, ^query_id, "alice", "What is the auth format?", []}
+                        }
+                      }},
+                     500
     end
 
     @tag :llm_dependent
@@ -139,7 +175,15 @@ defmodule Loomkin.Teams.QueryRouterTest do
       {:ok, query_id} =
         QueryRouter.ask(team_id, "alice", "What auth token format?", target: "bob")
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:query, ^query_id, "alice", "What auth token format?", enrichments}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{
+                          message:
+                            {:query, ^query_id, "alice", "What auth token format?", enrichments}
+                        }
+                      }},
+                     500
 
       assert length(enrichments) == 1
       assert [keeper_context] = enrichments
@@ -153,7 +197,14 @@ defmodule Loomkin.Teams.QueryRouterTest do
       # Even if keeper retrieval fails somehow, the query should still route
       {:ok, query_id} = QueryRouter.ask(team_id, "alice", "Will this work?")
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:query, ^query_id, "alice", "Will this work?", _enrichments}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{
+                          message: {:query, ^query_id, "alice", "Will this work?", _enrichments}
+                        }
+                      }},
+                     500
     end
 
     @tag :llm_dependent

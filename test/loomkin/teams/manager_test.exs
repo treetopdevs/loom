@@ -150,7 +150,8 @@ defmodule Loomkin.Teams.ManagerTest do
 
       Manager.dissolve_team(team_id)
 
-      assert_receive {:signal, %Jido.Signal{type: "team.dissolved", data: %{team_id: ^team_id}}}, 500
+      assert_receive {:signal, %Jido.Signal{type: "team.dissolved", data: %{team_id: ^team_id}}},
+                     500
     end
   end
 

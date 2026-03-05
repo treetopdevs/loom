@@ -656,21 +656,30 @@ defmodule Loomkin.Session do
   end
 
   defp broadcast(session_id, {:team_available, _session_id, team_id}) do
-    signal = Loomkin.Signals.Session.TeamAvailable.new!(%{session_id: session_id, team_id: team_id})
+    signal =
+      Loomkin.Signals.Session.TeamAvailable.new!(%{session_id: session_id, team_id: team_id})
+
     Loomkin.Signals.publish(signal)
   rescue
     e -> Logger.warning("[Session] Broadcast failed: #{Exception.message(e)}")
   end
 
   defp broadcast(session_id, {:child_team_available, _session_id, child_team_id}) do
-    signal = Loomkin.Signals.Session.ChildTeamAvailable.new!(%{session_id: session_id, child_team_id: child_team_id})
+    signal =
+      Loomkin.Signals.Session.ChildTeamAvailable.new!(%{
+        session_id: session_id,
+        child_team_id: child_team_id
+      })
+
     Loomkin.Signals.publish(signal)
   rescue
     e -> Logger.warning("[Session] Broadcast failed: #{Exception.message(e)}")
   end
 
   defp broadcast(session_id, {:llm_error, _session_id, error}) do
-    signal = Loomkin.Signals.Session.LlmError.new!(%{session_id: session_id, error: to_string(error)})
+    signal =
+      Loomkin.Signals.Session.LlmError.new!(%{session_id: session_id, error: to_string(error)})
+
     Loomkin.Signals.publish(signal)
   rescue
     e -> Logger.warning("[Session] Broadcast failed: #{Exception.message(e)}")
@@ -678,7 +687,9 @@ defmodule Loomkin.Session do
 
   defp broadcast(session_id, event) do
     # Fallback for any unmapped session events
-    signal = Loomkin.Signals.Session.StatusChanged.new!(%{session_id: session_id, status: :unknown})
+    signal =
+      Loomkin.Signals.Session.StatusChanged.new!(%{session_id: session_id, status: :unknown})
+
     Loomkin.Signals.publish(%{signal | data: Map.put(signal.data, :raw_event, event)})
   rescue
     e -> Logger.warning("[Session] Broadcast failed: #{Exception.message(e)}")

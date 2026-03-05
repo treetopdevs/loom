@@ -143,7 +143,10 @@ defmodule Loomkin.Teams.ConflictDetector do
     end
   end
 
-  def handle_info(%Jido.Signal{type: "agent.tool.complete", data: %{payload: %{tool_name: tool}}}, state)
+  def handle_info(
+        %Jido.Signal{type: "agent.tool.complete", data: %{payload: %{tool_name: tool}}},
+        state
+      )
       when tool in ["file_write", "file_edit"] do
     # tool_complete doesn't carry file_path, but tool_executing already tracked it
     {:noreply, state}
@@ -151,7 +154,13 @@ defmodule Loomkin.Teams.ConflictDetector do
 
   # --- Task tracking ---
 
-  def handle_info(%Jido.Signal{type: "team.task.assigned", data: %{task_id: task_id, agent_name: agent_name}}, state) do
+  def handle_info(
+        %Jido.Signal{
+          type: "team.task.assigned",
+          data: %{task_id: task_id, agent_name: agent_name}
+        },
+        state
+      ) do
     case Loomkin.Teams.Tasks.get_task(task_id) do
       {:ok, task} ->
         task_info = %{

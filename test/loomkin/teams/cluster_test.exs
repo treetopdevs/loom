@@ -49,7 +49,13 @@ defmodule Loomkin.Teams.ClusterTest do
     test "broadcasts node_joined event" do
       Loomkin.Signals.subscribe("system.**")
       :ok = Cluster.handle_node_join(:test@localhost)
-      assert_receive {:signal, %Jido.Signal{type: "system.cluster.node_joined", data: %{node: :test@localhost}}}, 500
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "system.cluster.node_joined",
+                        data: %{node: :test@localhost}
+                      }},
+                     500
     end
   end
 
@@ -57,7 +63,13 @@ defmodule Loomkin.Teams.ClusterTest do
     test "broadcasts node_left event" do
       Loomkin.Signals.subscribe("system.**")
       :ok = Cluster.handle_node_leave(:test@localhost)
-      assert_receive {:signal, %Jido.Signal{type: "system.cluster.node_left", data: %{node: :test@localhost}}}, 500
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "system.cluster.node_left",
+                        data: %{node: :test@localhost}
+                      }},
+                     500
     end
   end
 

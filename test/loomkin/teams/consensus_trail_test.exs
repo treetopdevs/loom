@@ -344,7 +344,13 @@ defmodule Loomkin.Teams.ConsensusTrailTest do
         %{rounds_completed: 2}
       )
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:collab_event, payload}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:collab_event, payload}}
+                      }},
+                     500
+
       assert payload.type == :consensus_success
       assert payload.description =~ "Consensus reached"
       assert payload.metadata.debate_id
@@ -365,7 +371,13 @@ defmodule Loomkin.Teams.ConsensusTrailTest do
         %{rounds_completed: 3}
       )
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:collab_event, payload}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:collab_event, payload}}
+                      }},
+                     500
+
       assert payload.type == :consensus_deadlock
       assert payload.description =~ "Deadlock"
       assert payload.description =~ "2 competing options"
@@ -392,7 +404,13 @@ defmodule Loomkin.Teams.ConsensusTrailTest do
         escalation
       )
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:collab_event, payload}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:collab_event, payload}}
+                      }},
+                     500
+
       assert payload.type == :consensus_escalation
       assert payload.description =~ "Escalated to user"
       assert payload.description =~ "narrow_scope"
@@ -417,10 +435,20 @@ defmodule Loomkin.Teams.ConsensusTrailTest do
         end)
 
       # Wait for debate_start
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_start, debate_id, "testing framework", _}}}}, 1_000
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:debate_start, debate_id, "testing framework", _}}
+                      }},
+                     1_000
 
       # Submit proposals
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_propose, ^debate_id, 1, _}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:debate_propose, ^debate_id, 1, _}}
+                      }},
+                     500
 
       Debate.submit_response(team_id, debate_id, :proposal, %{
         from: "alice",
@@ -433,7 +461,12 @@ defmodule Loomkin.Teams.ConsensusTrailTest do
       })
 
       # Let critique/revise phases timeout, then submit unanimous votes
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_vote, ^debate_id, _}}}}, 5_000
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:debate_vote, ^debate_id, _}}
+                      }},
+                     5_000
 
       Debate.submit_response(team_id, debate_id, :vote, %{
         from: "alice",
@@ -476,7 +509,12 @@ defmodule Loomkin.Teams.ConsensusTrailTest do
       assert outcome.metadata["quorum_met"] == true
 
       # Verify consensus success event was emitted
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:collab_event, %{type: :consensus_success}}}}}, 1_000
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:collab_event, %{type: :consensus_success}}}
+                      }},
+                     1_000
     end
 
     test "deadlock path produces graph trail + deadlock event", %{team_id: team_id} do
@@ -494,8 +532,19 @@ defmodule Loomkin.Teams.ConsensusTrailTest do
           )
         end)
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_start, debate_id, "db choice", _}}}}, 1_000
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_propose, ^debate_id, 1, _}}}}, 500
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:debate_start, debate_id, "db choice", _}}
+                      }},
+                     1_000
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:debate_propose, ^debate_id, 1, _}}
+                      }},
+                     500
 
       # Submit divergent proposals
       Debate.submit_response(team_id, debate_id, :proposal, %{
@@ -509,7 +558,12 @@ defmodule Loomkin.Teams.ConsensusTrailTest do
       })
 
       # Wait for vote phase, submit split votes (50/50 can't reach supermajority)
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:debate_vote, ^debate_id, _}}}}, 5_000
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:debate_vote, ^debate_id, _}}
+                      }},
+                     5_000
 
       Debate.submit_response(team_id, debate_id, :vote, %{from: "alice", choice: "alice"})
       Debate.submit_response(team_id, debate_id, :vote, %{from: "bob", choice: "bob"})
@@ -532,10 +586,20 @@ defmodule Loomkin.Teams.ConsensusTrailTest do
       assert outcome.metadata["final_outcome"] in ["deadlock", "escalation"]
 
       # Verify deadlock event was emitted
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:collab_event, %{type: :consensus_deadlock}}}}}, 1_000
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:collab_event, %{type: :consensus_deadlock}}}
+                      }},
+                     1_000
 
       # Verify escalation event was emitted (policy is escalate_to_user)
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:collab_event, %{type: :consensus_escalation}}}}}, 1_000
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:collab_event, %{type: :consensus_escalation}}}
+                      }},
+                     1_000
     end
   end
 

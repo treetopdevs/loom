@@ -18,7 +18,12 @@ defmodule Loomkin.Teams.CollaborationEventsTest do
     test "broadcasts collab_event with discovery_shared type", %{team_id: team_id} do
       CollaborationEvents.discovery_shared(team_id, "researcher", ["coder"], :file_analysis)
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:collab_event, payload}}}}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:collab_event, payload}}
+                      }}
+
       assert payload.type == :discovery_shared
       assert payload.agents == ["researcher", "coder"]
       assert payload.description =~ "researcher shared a file_analysis discovery with coder"
@@ -35,7 +40,12 @@ defmodule Loomkin.Teams.CollaborationEventsTest do
         :bug
       )
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:collab_event, payload}}}}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:collab_event, payload}}
+                      }}
+
       assert payload.description =~ "coder, tester, and lead"
     end
   end
@@ -49,7 +59,12 @@ defmodule Loomkin.Teams.CollaborationEventsTest do
         "How does the auth module work?"
       )
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:collab_event, payload}}}}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:collab_event, payload}}
+                      }}
+
       assert payload.type == :question_asked
       assert payload.agents == ["coder", "researcher"]
       assert payload.description =~ "coder asked researcher"
@@ -62,7 +77,12 @@ defmodule Loomkin.Teams.CollaborationEventsTest do
       long_question = String.duplicate("x", 500)
       CollaborationEvents.question_asked(team_id, "a", "b", long_question)
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:collab_event, payload}}}}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:collab_event, payload}}
+                      }}
+
       assert String.length(payload.metadata.question) <= 200
     end
   end
@@ -71,7 +91,12 @@ defmodule Loomkin.Teams.CollaborationEventsTest do
     test "broadcasts collab_event with question_answered type", %{team_id: team_id} do
       CollaborationEvents.question_answered(team_id, "researcher", "coder", "q-123")
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:collab_event, payload}}}}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:collab_event, payload}}
+                      }}
+
       assert payload.type == :question_answered
       assert payload.agents == ["researcher", "coder"]
       assert payload.description =~ "researcher answered coder's question"
@@ -83,7 +108,12 @@ defmodule Loomkin.Teams.CollaborationEventsTest do
     test "broadcasts collab_event with task_rebalanced type", %{team_id: team_id} do
       CollaborationEvents.task_rebalanced(team_id, "task-42", "coder", "tester")
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:collab_event, payload}}}}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:collab_event, payload}}
+                      }}
+
       assert payload.type == :task_rebalanced
       assert payload.agents == ["coder", "tester"]
       assert payload.description =~ "reassigned from coder to tester"
@@ -95,7 +125,12 @@ defmodule Loomkin.Teams.CollaborationEventsTest do
     test "broadcasts collab_event with conflict_detected type", %{team_id: team_id} do
       CollaborationEvents.conflict_detected(team_id, "coder", "researcher", :file_overlap)
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:collab_event, payload}}}}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:collab_event, payload}}
+                      }}
+
       assert payload.type == :conflict_detected
       assert payload.agents == ["coder", "researcher"]
       assert payload.description =~ "Conflict detected between coder and researcher"
@@ -107,7 +142,12 @@ defmodule Loomkin.Teams.CollaborationEventsTest do
     test "broadcasts collab_event with consensus_reached type", %{team_id: team_id} do
       CollaborationEvents.consensus_reached(team_id, "Use GenServer pattern", 0.85)
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:collab_event, payload}}}}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:collab_event, payload}}
+                      }}
+
       assert payload.type == :consensus_reached
       assert payload.description =~ "Team voted: Use GenServer pattern"
       assert payload.description =~ "0.85"
@@ -119,7 +159,12 @@ defmodule Loomkin.Teams.CollaborationEventsTest do
     test "broadcasts collab_event with knowledge_propagated type", %{team_id: team_id} do
       CollaborationEvents.knowledge_propagated(team_id, "sub-team-abc123", :architecture)
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:collab_event, payload}}}}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:collab_event, payload}}
+                      }}
+
       assert payload.type == :knowledge_propagated
       assert payload.description =~ "architecture"
       assert payload.description =~ "propagated from sub-team"

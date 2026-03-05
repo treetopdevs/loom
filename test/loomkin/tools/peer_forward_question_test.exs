@@ -41,7 +41,12 @@ defmodule Loomkin.Tools.PeerForwardQuestionTest do
       assert {:ok, %{result: result}} = PeerForwardQuestion.run(params, context())
       assert result =~ "forwarded to carol"
 
-      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message", data: %{message: {:query, ^query_id, "bob", "Complex Q?", enrichments}}}}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:query, ^query_id, "bob", "Complex Q?", enrichments}}
+                      }}
+
       assert Enum.any?(enrichments, &(&1 =~ "lib/foo.ex"))
     end
 

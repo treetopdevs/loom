@@ -113,7 +113,8 @@ defmodule Loomkin.Channels.Bridge do
 
   def handle_info(%Jido.Signal{type: "team.ask_user.question", data: data} = msg, state) do
     if should_notify?(msg, state) do
-      %{question_id: question_id, agent_name: agent_name, question: question, options: options} = data
+      %{question_id: question_id, agent_name: agent_name, question: question, options: options} =
+        data
 
       case rate_limited_send(state, fn ->
              state.adapter.send_question(
@@ -180,13 +181,15 @@ defmodule Loomkin.Channels.Bridge do
         team_id = state.binding.team_id
         channel = state.binding.channel
 
-        signal = Loomkin.Signals.Channel.Message.new!(%{
-          direction: :outbound,
-          channel: channel,
-          team_id: team_id,
-          agent_name: agent_name,
-          text: String.slice(content, 0, 200)
-        })
+        signal =
+          Loomkin.Signals.Channel.Message.new!(%{
+            direction: :outbound,
+            channel: channel,
+            team_id: team_id,
+            agent_name: agent_name,
+            text: String.slice(content, 0, 200)
+          })
+
         Loomkin.Signals.publish(signal)
 
         send_if_allowed(state, fn ->
@@ -201,7 +204,13 @@ defmodule Loomkin.Channels.Bridge do
     end
   end
 
-  def handle_info(%Jido.Signal{type: "collaboration.peer.message", data: %{message: {:collab_event, payload}}}, state) do
+  def handle_info(
+        %Jido.Signal{
+          type: "collaboration.peer.message",
+          data: %{message: {:collab_event, payload}}
+        },
+        state
+      ) do
     # Classify collab events by their inner type, not the outer signal wrapper
     severity = classify_collab_event(payload)
     levels = notify_levels(state)
@@ -424,12 +433,14 @@ defmodule Loomkin.Channels.Bridge do
     team_id = state.binding.team_id
     channel = state.binding.channel
 
-    signal = Loomkin.Signals.Channel.Message.new!(%{
-      direction: :inbound,
-      channel: channel,
-      team_id: team_id,
-      text: text
-    })
+    signal =
+      Loomkin.Signals.Channel.Message.new!(%{
+        direction: :inbound,
+        channel: channel,
+        team_id: team_id,
+        text: text
+      })
+
     Loomkin.Signals.publish(signal)
 
     case Registry.lookup(Loomkin.Teams.AgentRegistry, {team_id, "lead"}) do

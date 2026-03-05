@@ -178,7 +178,9 @@ defmodule Loomkin.Session.Manager do
   end
 
   defp broadcast(session_id, {:team_available, _sid, team_id}) do
-    signal = Loomkin.Signals.Session.TeamAvailable.new!(%{session_id: session_id, team_id: team_id})
+    signal =
+      Loomkin.Signals.Session.TeamAvailable.new!(%{session_id: session_id, team_id: team_id})
+
     Loomkin.Signals.publish(signal)
   end
 end
