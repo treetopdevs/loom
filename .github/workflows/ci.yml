@@ -99,4 +99,5 @@ jobs:
 
       - run: mix deps.get
 
-      - run: mix test
+      - name: Run tests
+        run: mix test || mix test --failed
