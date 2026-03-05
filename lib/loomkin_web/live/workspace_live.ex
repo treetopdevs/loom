@@ -194,6 +194,22 @@ defmodule LoomkinWeb.WorkspaceLive do
     active_team_id = socket.assigns[:active_team_id] || team_id
     channel_bindings = load_channel_bindings(active_team_id)
 
+    # Replay session message history as activity events so the feed
+    # survives reconnections (longpoll or websocket drops).
+    history_events = messages_to_activity_events(messages)
+
+    socket =
+      Enum.reduce(history_events, socket, fn event, sock ->
+        known = sock.assigns.activity_known_agents
+
+        case trackable_agent_name(event.agent) do
+          nil -> assign(sock, activity_events: sock.assigns.activity_events ++ [event])
+          name ->
+            new_known = if name in known, do: known, else: known ++ [name]
+            assign(sock, activity_events: sock.assigns.activity_events ++ [event], activity_known_agents: new_known)
+        end
+      end)
+
     assign(socket,
       session_id: session_id,
       project_path: project_path,
@@ -1919,6 +1935,30 @@ defmodule LoomkinWeb.WorkspaceLive do
   # --- Helpers ---
 
   defp cap_events(events, max \\ @max_activity_events), do: Enum.take(events, -max)
+
+  # Convert persisted session messages into activity feed events.
+  # Used on mount to recover feed state after reconnections.
+  defp messages_to_activity_events(messages) do
+    messages
+    |> Enum.filter(fn msg -> msg.role in [:user, :assistant] end)
+    |> Enum.map(fn msg ->
+      {agent, from, to} =
+        case msg.role do
+          :user -> {"You", "You", "Team"}
+          :assistant -> {"concierge", "concierge", "You"}
+        end
+
+      %{
+        id: "history-#{Ecto.UUID.generate()}",
+        type: :message,
+        agent: agent,
+        content: msg.content || "",
+        timestamp: Map.get(msg, :inserted_at, DateTime.utc_now()),
+        expanded: false,
+        metadata: %{from: from, to: to}
+      }
+    end)
+  end
 
   defp status_badge_class(:idle), do: "badge-success flex items-center gap-1.5"
   defp status_badge_class(:thinking), do: "badge flex items-center gap-1.5"
