@@ -21,7 +21,8 @@ defmodule Loomkin.Session do
     messages: [],
     tools: [],
     auto_approve: false,
-    child_team_ids: []
+    child_team_ids: [],
+    bootstrap_spawned: false
   ]
 
   # --- Public API ---
@@ -200,6 +201,9 @@ defmodule Loomkin.Session do
   def handle_call({:send_message, text}, from, state) do
     Logger.debug("[Session] send_message session=#{state.id} model=#{state.model}")
 
+    # Spawn bootstrap agents on first message (deferred from session start)
+    state = maybe_spawn_bootstrap_agents(state)
+
     # Try routing to Concierge first (bootstrap agent pattern)
     case maybe_route_to_concierge(state, text) do
       {:routed, concierge_pid} ->
@@ -228,7 +232,7 @@ defmodule Loomkin.Session do
                     content: response_text
                   })
 
-                assistant_msg = %{role: :assistant, content: response_text}
+                assistant_msg = %{role: :assistant, content: response_text, from: "concierge"}
                 broadcast(session_id, {:new_message, session_id, assistant_msg})
                 {:ok, response_text, assistant_msg}
 
@@ -561,7 +565,7 @@ defmodule Loomkin.Session do
         #{if results != "", do: "### Completed\n#{results}\n", else: ""}#{if failed != "", do: "### Failed\n#{failed}\n", else: ""}
         """
 
-        msg = %{role: :assistant, content: String.trim(summary)}
+        msg = %{role: :assistant, content: String.trim(summary), from: "Team"}
 
         Persistence.save_message(%{
           session_id: state.id,
@@ -582,6 +586,47 @@ defmodule Loomkin.Session do
     Phoenix.PubSub.broadcast(Loomkin.PubSub, "session:#{session_id}", event)
   rescue
     e -> Logger.warning("[Session] Broadcast failed: #{Exception.message(e)}")
+  end
+
+  defp maybe_spawn_bootstrap_agents(%{bootstrap_spawned: true} = state), do: state
+
+  defp maybe_spawn_bootstrap_agents(%{team_id: nil} = state), do: state
+
+  defp maybe_spawn_bootstrap_agents(state) do
+    team_id = state.team_id
+    project_path = state.project_path
+
+    Logger.info(
+      "[Session] Spawning bootstrap agents on first message team=#{team_id} path=#{project_path}"
+    )
+
+    # Spawn Concierge (thinking model)
+    case Loomkin.Teams.Manager.spawn_agent(team_id, "concierge", :concierge,
+           model: state.model,
+           project_path: project_path
+         ) do
+      {:ok, pid} ->
+        Logger.info("[Session] Concierge spawned pid=#{inspect(pid)} team=#{team_id}")
+
+      {:error, reason} ->
+        Logger.warning("[Session] Concierge FAILED team=#{team_id}: #{inspect(reason)}")
+    end
+
+    # Spawn Orienter (fast model)
+    fast_model = state.fast_model || state.model
+
+    case Loomkin.Teams.Manager.spawn_agent(team_id, "orienter", :orienter,
+           model: fast_model,
+           project_path: project_path
+         ) do
+      {:ok, pid} ->
+        Logger.info("[Session] Orienter spawned pid=#{inspect(pid)} team=#{team_id}")
+
+      {:error, reason} ->
+        Logger.warning("[Session] Orienter FAILED team=#{team_id}: #{inspect(reason)}")
+    end
+
+    %{state | bootstrap_spawned: true}
   end
 
   defp maybe_route_to_concierge(state, _text) do
