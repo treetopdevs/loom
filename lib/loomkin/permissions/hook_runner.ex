@@ -45,7 +45,7 @@ defmodule Loomkin.Permissions.HookRunner do
   Skips entirely for `:read` and `:coordination` category tools.
   """
   @spec run_post_hooks([module()], String.t(), map(), term()) ::
-          :ok | {:warn, String.t()} | {:rollback, String.t()}
+          :ok | {:rollback, String.t()}
   def run_post_hooks(hooks, tool_name, tool_args, result) do
     if skip_hooks?(tool_name) do
       :ok

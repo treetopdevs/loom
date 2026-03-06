@@ -8,6 +8,7 @@ defmodule Loomkin.AgentLoop do
   """
 
   alias Loomkin.AgentLoop.Checkpoint
+  alias Loomkin.Permissions.HookRunner
   alias Loomkin.Session.ContextWindow
   alias Loomkin.Teams.ContextOffload
   alias Loomkin.Telemetry, as: LoomkinTelemetry
@@ -386,27 +387,62 @@ defmodule Loomkin.AgentLoop do
             read_files = Process.get(:loomkin_read_files, MapSet.new())
             context = Map.put(context, :read_files, read_files)
 
-            result_text = run_tool(tool_module, tool_args, context, config)
+            # Run pre-tool hooks (opt-in via application config)
+            pre_hooks = HookRunner.load_hooks(:pre_tool)
 
-            # Track successful file_read calls
-            maybe_track_read_file(tool_name, tool_args, effective_path, result_text)
+            case HookRunner.run_pre_hooks(pre_hooks, tool_name, tool_args) do
+              :deny ->
+                result_text = "Error: Tool '#{tool_name}' blocked by pre-tool hook"
 
-            messages = record_tool_result(messages, config, tool_name, tool_call_id, result_text)
+                messages =
+                  record_tool_result(messages, config, tool_name, tool_call_id, result_text)
 
-            # Post-tool checkpoint — let the observer see the result
-            post_tool_checkpoint = %Checkpoint{
-              type: :post_tool,
-              agent_name: config.agent_name,
-              team_id: config.team_id,
-              iteration: iteration,
-              tool_name: tool_name,
-              tool_result: result_text,
-              messages: messages
-            }
+                {:ok, messages}
 
-            case maybe_checkpoint(config, post_tool_checkpoint) do
-              :continue -> {:ok, messages}
-              {:pause, reason} -> {:paused, reason, messages}
+              {:ask, reason} ->
+                result_text = "Error: Tool '#{tool_name}' requires confirmation: #{reason}"
+
+                messages =
+                  record_tool_result(messages, config, tool_name, tool_call_id, result_text)
+
+                {:ok, messages}
+
+              :allow ->
+                raw_result = run_tool(tool_module, tool_args, context, config)
+
+                # Run post-tool hooks
+                post_hooks = HookRunner.load_hooks(:post_tool)
+
+                result_text =
+                  case HookRunner.run_post_hooks(post_hooks, tool_name, tool_args, raw_result) do
+                    {:rollback, reason} ->
+                      raw_result <> "\n\nWarning: post-tool hook flagged: #{reason}"
+
+                    :ok ->
+                      raw_result
+                  end
+
+                # Track successful file_read calls
+                maybe_track_read_file(tool_name, tool_args, effective_path, result_text)
+
+                messages =
+                  record_tool_result(messages, config, tool_name, tool_call_id, result_text)
+
+                # Post-tool checkpoint — let the observer see the result
+                post_tool_checkpoint = %Checkpoint{
+                  type: :post_tool,
+                  agent_name: config.agent_name,
+                  team_id: config.team_id,
+                  iteration: iteration,
+                  tool_name: tool_name,
+                  tool_result: result_text,
+                  messages: messages
+                }
+
+                case maybe_checkpoint(config, post_tool_checkpoint) do
+                  :continue -> {:ok, messages}
+                  {:pause, reason} -> {:paused, reason, messages}
+                end
             end
 
           {:pending, pending_data} ->

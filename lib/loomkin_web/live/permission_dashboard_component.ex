@@ -63,6 +63,7 @@ defmodule LoomkinWeb.PermissionDashboardComponent do
               phx-click="permission_batch_action"
               phx-value-action="allow_once"
               phx-value-scope="all_reads"
+              phx-target={@myself}
               class="px-2.5 py-1 text-[10px] font-medium text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 rounded-lg transition-all"
             >
               Approve All Reads
@@ -72,6 +73,7 @@ defmodule LoomkinWeb.PermissionDashboardComponent do
               phx-click="permission_batch_action"
               phx-value-action="allow_once"
               phx-value-scope={"agent:#{agent}"}
+              phx-target={@myself}
               class="px-2.5 py-1 text-[10px] font-medium text-violet-400 bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/20 rounded-lg transition-all"
             >
               Approve {agent}
@@ -80,6 +82,7 @@ defmodule LoomkinWeb.PermissionDashboardComponent do
               phx-click="permission_batch_action"
               phx-value-action="deny"
               phx-value-scope="all"
+              phx-target={@myself}
               class="px-2.5 py-1 text-[10px] font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-lg transition-all"
             >
               Deny All
@@ -135,6 +138,7 @@ defmodule LoomkinWeb.PermissionDashboardComponent do
                 phx-click="permission_response"
                 phx-value-action="deny"
                 phx-value-id={req.id}
+                phx-target={@myself}
                 class="px-2 py-1 text-[10px] font-medium text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-all"
               >
                 Deny
@@ -143,6 +147,7 @@ defmodule LoomkinWeb.PermissionDashboardComponent do
                 phx-click="permission_response"
                 phx-value-action="allow_once"
                 phx-value-id={req.id}
+                phx-target={@myself}
                 class="px-2 py-1 text-[10px] font-medium text-violet-400/70 hover:text-violet-400 hover:bg-violet-500/10 rounded-md transition-all"
               >
                 Once
@@ -151,6 +156,7 @@ defmodule LoomkinWeb.PermissionDashboardComponent do
                 phx-click="permission_response"
                 phx-value-action="allow_always"
                 phx-value-id={req.id}
+                phx-target={@myself}
                 class="px-2.5 py-1 text-[10px] font-medium text-white bg-violet-600/80 hover:bg-violet-500 rounded-md transition-all shadow-sm"
               >
                 Always
@@ -161,6 +167,16 @@ defmodule LoomkinWeb.PermissionDashboardComponent do
       </div>
     </div>
     """
+  end
+
+  def handle_event("permission_response", %{"action" => action, "id" => id}, socket) do
+    send(self(), {:permission_response, action, id})
+    {:noreply, socket}
+  end
+
+  def handle_event("permission_batch_action", %{"action" => action, "scope" => scope}, socket) do
+    send(self(), {:permission_batch_action, action, scope})
+    {:noreply, socket}
   end
 
   # --- Helpers ---

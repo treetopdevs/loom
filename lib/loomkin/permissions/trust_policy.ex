@@ -133,7 +133,12 @@ defmodule Loomkin.Permissions.TrustPolicy do
   """
   @spec init(String.t()) :: :ok
   def init(session_id) do
-    :ets.new(table_name(session_id), [:set, :public, :named_table])
+    name = table_name(session_id)
+
+    if :ets.info(name) == :undefined do
+      :ets.new(name, [:set, :public, :named_table])
+    end
+
     :ok
   end
 

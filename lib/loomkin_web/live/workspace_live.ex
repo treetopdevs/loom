@@ -96,7 +96,18 @@ defmodule LoomkinWeb.WorkspaceLive do
     end
   end
 
+  def terminate(_reason, socket) do
+    if session_id = socket.assigns[:session_id] do
+      Loomkin.Permissions.TrustPolicy.cleanup(session_id)
+    end
+
+    :ok
+  end
+
   defp start_and_subscribe(socket, session_id, project_path \\ nil) do
+    # Initialize trust policy ETS table for this session (idempotent)
+    Loomkin.Permissions.TrustPolicy.init(session_id)
+
     # Use full lead tool set — every session is a team-capable lead agent
     tools = Loomkin.Tools.Registry.for_lead()
     project_path = project_path || File.cwd!()
@@ -244,7 +255,8 @@ defmodule LoomkinWeb.WorkspaceLive do
       recent_projects: [],
       reply_target: nil,
       channel_bindings: channel_bindings,
-      kin_agents: load_kin_agents()
+      kin_agents: load_kin_agents(),
+      trust_preset: Loomkin.Permissions.TrustPolicy.get_preset_name(session_id)
     )
   end
 
@@ -496,6 +508,17 @@ defmodule LoomkinWeb.WorkspaceLive do
     end
 
     {:noreply, assign(socket, pending_permissions: to_keep)}
+  end
+
+  @valid_trust_presets ~w(strict balanced autonomous full_trust)
+  def handle_event("set_trust_preset", %{"preset" => preset_str}, socket)
+      when preset_str in @valid_trust_presets do
+    preset = String.to_existing_atom(preset_str)
+
+    case Loomkin.Permissions.TrustPolicy.apply_preset(socket.assigns.session_id, preset) do
+      :ok -> {:noreply, assign(socket, trust_preset: preset)}
+      {:error, :unknown_preset} -> {:noreply, socket}
+    end
   end
 
   @valid_sub_tabs ~w(activity cost graph)
@@ -1157,19 +1180,7 @@ defmodule LoomkinWeb.WorkspaceLive do
         _ -> "session"
       end
 
-    request = %{
-      id: Ecto.UUID.generate(),
-      tool_name: tn,
-      tool_path: tp,
-      source: source,
-      agent_name: agent_name,
-      team_id: tid,
-      category: Loomkin.Permissions.Manager.tool_category(tn),
-      requested_at: DateTime.utc_now()
-    }
-
-    pending = socket.assigns.pending_permissions ++ [request]
-    {:noreply, assign(socket, pending_permissions: pending)}
+    {:noreply, enqueue_or_auto_respond(socket, agent_name, :any, tn, tp, source, tid)}
   end
 
   def handle_info(%Jido.Signal{type: "team.dissolved"} = sig, socket) do
@@ -1406,36 +1417,22 @@ defmodule LoomkinWeb.WorkspaceLive do
         _ -> "session"
       end
 
-    request = %{
-      id: Ecto.UUID.generate(),
-      tool_name: tool_name,
-      tool_path: tool_path,
-      source: source,
-      agent_name: agent_name,
-      team_id: team_id,
-      category: Loomkin.Permissions.Manager.tool_category(tool_name),
-      requested_at: DateTime.utc_now()
-    }
-
-    pending = socket.assigns.pending_permissions ++ [request]
-    {:noreply, assign(socket, pending_permissions: pending)}
+    {:noreply,
+     enqueue_or_auto_respond(socket, agent_name, :any, tool_name, tool_path, source, team_id)}
   end
 
   # 4-tuple backwards compat (default to :session source)
-  def handle_info({:permission_request, session_id, tool_name, tool_path}, socket) do
-    request = %{
-      id: Ecto.UUID.generate(),
-      tool_name: tool_name,
-      tool_path: tool_path,
-      source: :session,
-      agent_name: "session",
-      team_id: session_id,
-      category: Loomkin.Permissions.Manager.tool_category(tool_name),
-      requested_at: DateTime.utc_now()
-    }
-
-    pending = socket.assigns.pending_permissions ++ [request]
-    {:noreply, assign(socket, pending_permissions: pending)}
+  def handle_info({:permission_request, _session_id, tool_name, tool_path}, socket) do
+    {:noreply,
+     enqueue_or_auto_respond(
+       socket,
+       "session",
+       :any,
+       tool_name,
+       tool_path,
+       :session,
+       socket.assigns[:team_id] || socket.assigns.session_id
+     )}
   end
 
   def handle_info({:team_available, _session_id, team_id}, socket) do
@@ -1672,6 +1669,16 @@ defmodule LoomkinWeb.WorkspaceLive do
     end
 
     {:noreply, assign(socket, pending_permissions: remaining)}
+  end
+
+  def handle_info({:permission_batch_action, action, scope}, socket) do
+    {to_act, to_keep} = split_permissions_by_scope(socket.assigns.pending_permissions, scope)
+
+    for request <- to_act do
+      route_permission_response(socket, action, request)
+    end
+
+    {:noreply, assign(socket, pending_permissions: to_keep)}
   end
 
   # Legacy 4-arg format (from old PermissionComponent)
@@ -2412,6 +2419,12 @@ defmodule LoomkinWeb.WorkspaceLive do
           id="fast-model-selector"
           model={@fast_model || @model}
           selector_mode={:fast}
+        />
+
+        <%!-- Trust policy selector --%>
+        <LoomkinWeb.TrustPolicyComponent.trust_policy_selector
+          current_preset={@trust_preset}
+          class="hidden md:flex"
         />
 
         <%!-- Separator --%>
@@ -3506,7 +3519,7 @@ defmodule LoomkinWeb.WorkspaceLive do
 
   defp log_permission_decision(req, action) do
     Loomkin.Permissions.Manager.record_decision(%{
-      session_id: req[:session_id] || req[:team_id],
+      session_id: req.session_id,
       team_id: req.team_id,
       agent_name: req.agent_name,
       tool_name: req.tool_name,
@@ -3544,6 +3557,36 @@ defmodule LoomkinWeb.WorkspaceLive do
 
   defp split_permissions_by_scope(pending, _unknown) do
     {[], pending}
+  end
+
+  defp enqueue_or_auto_respond(socket, agent_name, role, tool_name, tool_path, source, team_id) do
+    session_id = socket.assigns.session_id
+
+    request = %{
+      id: Ecto.UUID.generate(),
+      session_id: session_id,
+      tool_name: tool_name,
+      tool_path: tool_path,
+      source: source,
+      agent_name: agent_name,
+      team_id: team_id,
+      category: Loomkin.Permissions.Manager.tool_category(tool_name),
+      requested_at: DateTime.utc_now()
+    }
+
+    case Loomkin.Permissions.TrustPolicy.check(session_id, agent_name, role, tool_name, tool_path) do
+      :auto_approve ->
+        route_permission_response(socket, "allow_once", request)
+        socket
+
+      :deny ->
+        route_permission_response(socket, "deny", request)
+        socket
+
+      _ask_or_nil ->
+        pending = socket.assigns.pending_permissions ++ [request]
+        assign(socket, pending_permissions: pending)
+    end
   end
 
   # Subscribe to a team's PubSub topics, but only once per team.
