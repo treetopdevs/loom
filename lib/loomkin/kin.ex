@@ -13,6 +13,12 @@ defmodule Loomkin.Kin do
     |> Repo.all()
   end
 
+  def list_all do
+    KinAgent
+    |> order_by([k], desc: k.potency)
+    |> Repo.all()
+  end
+
   def list_auto_spawn do
     KinAgent
     |> where([k], k.enabled == true and k.auto_spawn == true)

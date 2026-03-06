@@ -78,7 +78,10 @@ defmodule LoomkinWeb.WorkspaceLive do
         scheduled_messages: [],
         queue_selected_ids: MapSet.new(),
         queue_editing_id: nil,
-        schedule_delay_minutes: 5
+        schedule_delay_minutes: 5,
+        # Kin management panel
+        kin_panel_open: false,
+        kin_agents: []
       )
 
     case socket.assigns.live_action do
@@ -240,7 +243,8 @@ defmodule LoomkinWeb.WorkspaceLive do
       switch_project_modal: nil,
       recent_projects: [],
       reply_target: nil,
-      channel_bindings: channel_bindings
+      channel_bindings: channel_bindings,
+      kin_agents: load_kin_agents()
     )
   end
 
@@ -430,6 +434,21 @@ defmodule LoomkinWeb.WorkspaceLive do
 
   def handle_event("close_agent_picker", _params, socket) do
     {:noreply, assign(socket, show_agent_picker: false)}
+  end
+
+  def handle_event("open_kin_panel", _params, socket) do
+    {:noreply, assign(socket, kin_panel_open: true)}
+  end
+
+  def handle_event("spawn_dormant_kin", %{"id" => id}, socket) do
+    case Loomkin.Kin.get_kin(id) do
+      nil ->
+        {:noreply, socket}
+
+      kin ->
+        send(self(), {:spawn_kin_agent, kin})
+        {:noreply, socket}
+    end
   end
 
   @valid_tabs ~w(files diff terminal graph)
@@ -1543,6 +1562,31 @@ defmodule LoomkinWeb.WorkspaceLive do
     {:noreply, assign(socket, switch_project_modal: nil)}
   end
 
+  def handle_info(:close_kin_panel, socket) do
+    {:noreply, assign(socket, kin_panel_open: false)}
+  end
+
+  def handle_info(:reload_kin_agents, socket) do
+    {:noreply, assign(socket, kin_agents: load_kin_agents())}
+  end
+
+  def handle_info({:spawn_kin_agent, kin}, socket) do
+    team_id = socket.assigns[:active_team_id]
+
+    if team_id do
+      spawn_opts = [project_path: socket.assigns[:project_path]]
+
+      spawn_opts =
+        if kin.model_override,
+          do: [{:model, kin.model_override} | spawn_opts],
+          else: spawn_opts
+
+      Loomkin.Teams.Manager.spawn_agent(team_id, kin.name, kin.role, spawn_opts)
+    end
+
+    {:noreply, socket}
+  end
+
   def handle_info(:confirm_switch_project, socket) do
     modal = socket.assigns.switch_project_modal
 
@@ -2388,6 +2432,19 @@ defmodule LoomkinWeb.WorkspaceLive do
             </span>
           </a>
 
+          <%!-- Kin Management --%>
+          <button
+            phx-click="open_kin_panel"
+            class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors hover:bg-surface-2"
+            style="color: var(--text-muted);"
+            title="Manage Kin"
+          >
+            <svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M7 8a3 3 0 100-6 3 3 0 000 6zM14.5 9a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM1.615 16.428a1.224 1.224 0 01-.569-1.175 6.002 6.002 0 0111.908 0c.058.467-.172.92-.57 1.174A9.953 9.953 0 017 18a9.953 9.953 0 01-5.385-1.572zM14.5 16h-.106c.07-.297.088-.611.048-.933a7.47 7.47 0 00-1.588-3.755 4.502 4.502 0 015.874 2.636.818.818 0 01-.36.98A7.465 7.465 0 0114.5 16z" />
+            </svg>
+            <span class="hidden sm:inline">Kin</span>
+          </button>
+
           <%!-- Separator --%>
           <div class="w-px h-4 flex-shrink-0" style="background: var(--border-default);"></div>
 
@@ -2411,6 +2468,15 @@ defmodule LoomkinWeb.WorkspaceLive do
       <div class="flex flex-1 min-h-0 flex-col xl:flex-row">
         {render_mode(@mode, assigns)}
       </div>
+
+      <%!-- Kin Management Panel --%>
+      <.live_component
+        :if={@kin_panel_open}
+        module={LoomkinWeb.KinPanelComponent}
+        id="kin-panel"
+        active_team_id={@active_team_id}
+        active_agents={@cached_agents}
+      />
     </div>
     """
   end
@@ -2605,20 +2671,41 @@ defmodule LoomkinWeb.WorkspaceLive do
             <div class="flex-1 h-px" style="background: var(--border-subtle);"></div>
           </div>
 
+          <%!-- Waiting state: session exists but agents haven't spawned yet --%>
           <div
-            :if={@concierge_card == nil && @worker_cards == []}
-            class="rounded-lg border border-dashed py-6 text-center"
-            style="border-color: var(--border-subtle); background: var(--surface-1);"
+            :if={@concierge_card == nil && @worker_cards == [] && @active_team_id}
+            class="rounded-lg py-4 px-4 text-center"
+            style="background: var(--surface-1); border: 1px solid var(--border-subtle);"
           >
-            <svg
-              class="w-5 h-5 mx-auto mb-1.5 text-muted opacity-40"
-              viewBox="0 0 20 20"
-              fill="currentColor"
-            >
-              <path d="M7 8a3 3 0 100-6 3 3 0 000 6zM14.5 9a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM1.615 16.428a1.224 1.224 0 01-.569-1.175 6.002 6.002 0 0111.908 0c.058.467-.172.92-.57 1.174A9.953 9.953 0 017 18a9.953 9.953 0 01-5.385-1.572zM14.5 16h-.106c.07-.297.088-.611.048-.933a7.47 7.47 0 00-1.588-3.755 4.502 4.502 0 015.874 2.636.818.818 0 01-.36.98A7.465 7.465 0 0114.5 16z" />
-            </svg>
-            <div class="text-muted text-xs">Specialists will appear here as they spawn</div>
+            <div class="flex justify-center gap-3 mb-2">
+              <div class="w-8 h-8 rounded-full bg-violet-500/15 flex items-center justify-center text-violet-400 text-xs font-bold">
+                C
+              </div>
+              <div class="w-8 h-8 rounded-full bg-sky-500/15 flex items-center justify-center text-sky-400 text-xs font-bold">
+                O
+              </div>
+            </div>
+            <div class="text-xs font-medium" style="color: var(--text-secondary);">
+              Concierge & Orienter ready
+            </div>
+            <div class="text-[10px] mt-0.5" style="color: var(--text-muted);">
+              Send a message to wake them up
+            </div>
           </div>
+          <%!-- No session state --%>
+          <div
+            :if={@concierge_card == nil && @worker_cards == [] && !@active_team_id}
+            class="rounded-lg border border-dashed py-4 px-4 text-center"
+            style="border-color: var(--border-subtle);"
+          >
+            <div class="text-muted text-xs">Start a session to meet your kin</div>
+            <div class="text-[10px] mt-0.5" style="color: var(--text-muted);">
+              Concierge + Orienter spawn automatically
+            </div>
+          </div>
+
+          <%!-- Ghost cards for dormant kin (not yet spawned) --%>
+          {render_ghost_cards(assigns)}
 
           <%= if @worker_cards != [] do %>
             <div class={["grid gap-3", card_grid_cols(length(@worker_cards))]}>
@@ -2696,6 +2783,69 @@ defmodule LoomkinWeb.WorkspaceLive do
   defp card_grid_cols(n) when n <= 1, do: "grid-cols-1"
   defp card_grid_cols(n) when n <= 4, do: "grid-cols-2"
   defp card_grid_cols(_), do: "grid-cols-3"
+
+  defp render_ghost_cards(assigns) do
+    active_names = Enum.map(assigns.cached_agents, & &1.name)
+
+    dormant_kin =
+      assigns.kin_agents
+      |> Enum.filter(fn k -> k.enabled && k.name not in active_names end)
+
+    assigns = assign(assigns, dormant_kin: dormant_kin)
+
+    ~H"""
+    <div :if={@dormant_kin != []} class="flex flex-wrap gap-2 mt-2">
+      <button
+        :for={kin <- @dormant_kin}
+        phx-click="spawn_dormant_kin"
+        phx-value-id={kin.id}
+        class="group flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed transition-all hover:border-solid hover:bg-surface-2"
+        style="border-color: var(--border-subtle);"
+        title={"Spawn #{kin.display_name || kin.name}"}
+      >
+        <span
+          class="w-1.5 h-1.5 rounded-full opacity-50"
+          style={"background: #{kin_potency_color(kin.potency)};"}
+        />
+        <span
+          class="text-xs font-medium opacity-60 group-hover:opacity-100 transition-opacity"
+          style="color: var(--text-secondary);"
+        >
+          {kin.display_name || kin.name}
+        </span>
+        <span
+          class="text-[9px] px-1 py-0.5 rounded font-medium opacity-40"
+          style="background: var(--brand-muted); color: var(--text-muted);"
+        >
+          {format_agent_role(kin.role)}
+        </span>
+        <svg
+          class="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity"
+          style="color: var(--text-muted);"
+          viewBox="0 0 20 20"
+          fill="currentColor"
+        >
+          <path
+            fill-rule="evenodd"
+            d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
+            clip-rule="evenodd"
+          />
+        </svg>
+      </button>
+    </div>
+    """
+  end
+
+  defp kin_potency_color(potency) when is_integer(potency) do
+    cond do
+      potency >= 81 -> "#34d399"
+      potency >= 51 -> "#fbbf24"
+      potency >= 21 -> "#60a5fa"
+      true -> "#71717a"
+    end
+  end
+
+  defp kin_potency_color(_), do: "#60a5fa"
 
   defp render_budget_bar(assigns) do
     budget = assigns[:cached_budget] || %{spent: 0.0, limit: 5.0}
@@ -4321,6 +4471,10 @@ defmodule LoomkinWeb.WorkspaceLive do
       end
 
     %{spent: spent, limit: 5.0}
+  end
+
+  defp load_kin_agents do
+    Loomkin.Kin.list_all()
   end
 
   defp forward_to_team_components(socket) do

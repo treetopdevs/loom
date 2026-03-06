@@ -61,6 +61,7 @@ defmodule Loomkin.MixProject do
       # Storage
       {:postgrex, ">= 0.0.0"},
       {:ecto_sql, "~> 3.12"},
+      {:phoenix_ecto, "~> 4.6"},
 
       # Git
       {:git_cli, "~> 0.3"},
