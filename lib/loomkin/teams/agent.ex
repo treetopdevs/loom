@@ -24,6 +24,7 @@ defmodule Loomkin.Teams.Agent do
 
   defstruct [
     :team_id,
+    :session_id,
     :name,
     :role,
     :role_config,
@@ -176,6 +177,7 @@ defmodule Loomkin.Teams.Agent do
     project_path = Keyword.get(opts, :project_path)
 
     permission_mode = Keyword.get(opts, :permission_mode, :auto)
+    session_id = Keyword.get(opts, :session_id, team_id)
     kin_agents = Keyword.get(opts, :kin_agents, [])
 
     Logger.info("[Kin:agent] init name=#{name} role=#{role} team=#{team_id}")
@@ -188,6 +190,7 @@ defmodule Loomkin.Teams.Agent do
 
         state = %__MODULE__{
           team_id: team_id,
+          session_id: session_id,
           name: name,
           role: role,
           role_config: role_config,
@@ -626,7 +629,7 @@ defmodule Loomkin.Teams.Agent do
       pending_info ->
         if action == "allow_always" do
           # Store grant with the actual resolved path, not wildcard
-          Loomkin.Permissions.Manager.grant(to_string(tool_name), tool_path, state.team_id)
+          Loomkin.Permissions.Manager.grant(to_string(tool_name), tool_path, state.session_id)
         end
 
         # Resume in a task to avoid blocking the GenServer
@@ -1830,7 +1833,7 @@ defmodule Loomkin.Teams.Agent do
       project_path_resolver: project_path_resolver,
       agent_name: state.name,
       team_id: state.team_id,
-      session_id: state.team_id,
+      session_id: state.session_id,
       reasoning_strategy: state.role_config.reasoning_strategy,
       check_permission: permission_callback,
       checkpoint: checkpoint_callback,
@@ -1874,6 +1877,7 @@ defmodule Loomkin.Teams.Agent do
   defp build_permission_callback(%{
          permission_mode: :session,
          team_id: team_id,
+         session_id: session_id,
          name: name
        }) do
     agent_name = name
@@ -1894,9 +1898,9 @@ defmodule Loomkin.Teams.Agent do
 
       check_result =
         if project_path do
-          Loomkin.Permissions.Manager.check(tool_name_str, tool_path, team_id, project_path)
+          Loomkin.Permissions.Manager.check(tool_name_str, tool_path, session_id, project_path)
         else
-          Loomkin.Permissions.Manager.check(tool_name_str, tool_path, team_id)
+          Loomkin.Permissions.Manager.check(tool_name_str, tool_path, session_id)
         end
 
       case check_result do

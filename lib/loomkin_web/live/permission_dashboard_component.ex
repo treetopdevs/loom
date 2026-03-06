@@ -36,7 +36,6 @@ defmodule LoomkinWeb.PermissionDashboardComponent do
     <div
       id="permission-dashboard"
       class="fixed bottom-0 inset-x-0 z-50 animate-slide-up"
-      phx-window-keydown="keyboard_shortcut"
     >
       <%!-- Backdrop --%>
       <div class="absolute inset-0 -top-screen bg-black/30 pointer-events-none" />

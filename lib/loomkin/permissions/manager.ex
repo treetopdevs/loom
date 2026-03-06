@@ -27,7 +27,7 @@ defmodule Loomkin.Permissions.Manager do
   """
   def check(tool_name, path, session_id) do
     cond do
-      is_auto_approved?(tool_name) ->
+      auto_approved?(tool_name) ->
         :allowed
 
       has_grant?(tool_name, path, session_id) ->
@@ -86,7 +86,7 @@ defmodule Loomkin.Permissions.Manager do
   @doc """
   Check if a tool is in the auto_approve list from config.
   """
-  def is_auto_approved?(tool_name) do
+  def auto_approved?(tool_name) do
     auto_list = Loomkin.Config.get(:permissions, :auto_approve) || []
     tool_name in auto_list
   end

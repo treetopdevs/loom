@@ -387,8 +387,12 @@ defmodule Loomkin.AgentLoop do
             read_files = Process.get(:loomkin_read_files, MapSet.new())
             context = Map.put(context, :read_files, read_files)
 
-            # Run pre-tool hooks (opt-in via application config)
+            # Set project path in process dictionary for hook modules
+            Process.put(:loomkin_project_path, effective_path)
+
+            # Load hooks once for both pre and post phases
             pre_hooks = HookRunner.load_hooks(:pre_tool)
+            post_hooks = HookRunner.load_hooks(:post_tool)
 
             case HookRunner.run_pre_hooks(pre_hooks, tool_name, tool_args) do
               :deny ->
@@ -400,7 +404,7 @@ defmodule Loomkin.AgentLoop do
                 {:ok, messages}
 
               {:ask, reason} ->
-                result_text = "Error: Tool '#{tool_name}' requires confirmation: #{reason}"
+                result_text = "Tool '#{tool_name}' requires confirmation: #{reason}"
 
                 messages =
                   record_tool_result(messages, config, tool_name, tool_call_id, result_text)
@@ -409,9 +413,6 @@ defmodule Loomkin.AgentLoop do
 
               :allow ->
                 raw_result = run_tool(tool_module, tool_args, context, config)
-
-                # Run post-tool hooks
-                post_hooks = HookRunner.load_hooks(:post_tool)
 
                 result_text =
                   case HookRunner.run_post_hooks(post_hooks, tool_name, tool_args, raw_result) do

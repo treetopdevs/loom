@@ -11,7 +11,7 @@ defmodule Loomkin.Schemas.PermissionAuditLog do
     field :agent_name, :string
     field :tool_name, :string
     field :tool_path, :string
-    field :action, :string
+    field :action, Ecto.Enum, values: [:allow_once, :allow_always, :deny]
     field :comment, :string
     field :decided_at, :utc_datetime
   end
@@ -23,7 +23,6 @@ defmodule Loomkin.Schemas.PermissionAuditLog do
     log
     |> cast(attrs, @required_fields ++ @optional_fields)
     |> validate_required(@required_fields)
-    |> validate_inclusion(:action, ~w(allow_once allow_always deny))
     |> foreign_key_constraint(:session_id)
   end
 end

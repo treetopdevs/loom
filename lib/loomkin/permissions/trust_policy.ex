@@ -136,10 +136,30 @@ defmodule Loomkin.Permissions.TrustPolicy do
     name = table_name(session_id)
 
     if :ets.info(name) == :undefined do
-      :ets.new(name, [:set, :public, :named_table])
+      try do
+        :ets.new(name, [:set, :protected, :named_table])
+      rescue
+        ArgumentError -> :ok
+      end
     end
 
     :ok
+  end
+
+  @doc """
+  Initializes the ETS table and optionally applies a preset.
+
+  Useful for re-applying session state on LiveView remount, since the ETS
+  table is owned by (and dies with) the creating process.
+  """
+  @spec init_with_preset(String.t(), atom() | nil) :: :ok | {:error, :unknown_preset}
+  def init_with_preset(session_id, nil) do
+    init(session_id)
+  end
+
+  def init_with_preset(session_id, preset_name) do
+    init(session_id)
+    apply_preset(session_id, preset_name)
   end
 
   @doc """
@@ -247,7 +267,8 @@ defmodule Loomkin.Permissions.TrustPolicy do
     if :ets.info(name) == :undefined do
       []
     else
-      :ets.tab2list(name)
+      name
+      |> :ets.tab2list()
       |> Enum.reject(fn {key, _val} -> key == :__preset__ end)
       |> Enum.map(fn {_key, policy} -> policy end)
     end

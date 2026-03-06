@@ -6,7 +6,3 @@ import Config
 config :loomkin, Loomkin.Repo, pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
 
 config :logger, level: :info
-
-# Pre-compile assets for production
-config :esbuild, :loomkin, []
-config :tailwind, :loomkin, []

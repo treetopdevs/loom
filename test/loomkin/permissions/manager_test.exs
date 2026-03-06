@@ -57,19 +57,19 @@ defmodule Loomkin.Permissions.ManagerTest do
     end
   end
 
-  describe "is_auto_approved?/1" do
+  describe "auto_approved?/1" do
     test "returns true for default auto-approved tools" do
-      assert Manager.is_auto_approved?("file_read")
-      assert Manager.is_auto_approved?("file_search")
-      assert Manager.is_auto_approved?("content_search")
-      assert Manager.is_auto_approved?("directory_list")
+      assert Manager.auto_approved?("file_read")
+      assert Manager.auto_approved?("file_search")
+      assert Manager.auto_approved?("content_search")
+      assert Manager.auto_approved?("directory_list")
     end
 
     test "returns false for write/execute tools" do
-      refute Manager.is_auto_approved?("file_write")
-      refute Manager.is_auto_approved?("file_edit")
-      refute Manager.is_auto_approved?("shell")
-      refute Manager.is_auto_approved?("git")
+      refute Manager.auto_approved?("file_write")
+      refute Manager.auto_approved?("file_edit")
+      refute Manager.auto_approved?("shell")
+      refute Manager.auto_approved?("git")
     end
   end
 
@@ -116,13 +116,13 @@ defmodule Loomkin.Permissions.ManagerTest do
                  agent_name: "coder-1",
                  tool_name: "file_write",
                  tool_path: "/lib/foo.ex",
-                 action: "allow_once",
+                 action: :allow_once,
                  comment: "looks safe"
                })
 
       assert log.agent_name == "coder-1"
       assert log.tool_name == "file_write"
-      assert log.action == "allow_once"
+      assert log.action == :allow_once
       assert log.comment == "looks safe"
       assert log.decided_at != nil
     end
@@ -134,7 +134,7 @@ defmodule Loomkin.Permissions.ManagerTest do
                  team_id: "team-1",
                  agent_name: "coder-1",
                  tool_name: "shell",
-                 action: "deny"
+                 action: :deny
                })
 
       assert log.comment == nil
@@ -154,7 +154,7 @@ defmodule Loomkin.Permissions.ManagerTest do
 
   describe "list_recent_decisions/2" do
     test "returns decisions ordered by most recent", %{session: session} do
-      actions = ~w(allow_once allow_always deny)
+      actions = [:allow_once, :allow_always, :deny]
 
       for {action, i} <- Enum.with_index(actions) do
         decided_at =
@@ -174,7 +174,7 @@ defmodule Loomkin.Permissions.ManagerTest do
 
       decisions = Manager.list_recent_decisions(session.id)
       assert length(decisions) == 3
-      assert hd(decisions).action == "deny"
+      assert hd(decisions).action == :deny
     end
 
     test "respects limit", %{session: session} do
@@ -184,7 +184,7 @@ defmodule Loomkin.Permissions.ManagerTest do
           team_id: "team-1",
           agent_name: "coder-1",
           tool_name: "file_write",
-          action: "allow_once"
+          action: :allow_once
         })
       end
 

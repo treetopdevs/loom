@@ -485,31 +485,6 @@ defmodule LoomkinWeb.WorkspaceLive do
     {:noreply, assign(socket, selected_file: nil, file_content: nil)}
   end
 
-  def handle_event(
-        "permission_response",
-        %{"action" => action, "id" => request_id},
-        socket
-      ) do
-    {request, remaining} =
-      pop_permission_request(socket.assigns.pending_permissions, request_id)
-
-    if request do
-      route_permission_response(socket, action, request)
-    end
-
-    {:noreply, assign(socket, pending_permissions: remaining)}
-  end
-
-  def handle_event("permission_batch_action", %{"action" => action, "scope" => scope}, socket) do
-    {to_act, to_keep} = split_permissions_by_scope(socket.assigns.pending_permissions, scope)
-
-    for request <- to_act do
-      route_permission_response(socket, action, request)
-    end
-
-    {:noreply, assign(socket, pending_permissions: to_keep)}
-  end
-
   @valid_trust_presets ~w(strict balanced autonomous full_trust)
   def handle_event("set_trust_preset", %{"preset" => preset_str}, socket)
       when preset_str in @valid_trust_presets do
@@ -519,6 +494,10 @@ defmodule LoomkinWeb.WorkspaceLive do
       :ok -> {:noreply, assign(socket, trust_preset: preset)}
       {:error, :unknown_preset} -> {:noreply, socket}
     end
+  end
+
+  def handle_event("set_trust_preset", _params, socket) do
+    {:noreply, socket}
   end
 
   @valid_sub_tabs ~w(activity cost graph)
@@ -3538,7 +3517,7 @@ defmodule LoomkinWeb.WorkspaceLive do
 
   defp pop_permission_request_by_tool(pending, tool_name, tool_path) do
     case Enum.split_with(pending, &(&1.tool_name == tool_name and &1.tool_path == tool_path)) do
-      {[request | _rest], remaining} -> {request, remaining}
+      {[request | rest], remaining} -> {request, rest ++ remaining}
       {[], remaining} -> {nil, remaining}
     end
   end
@@ -3584,7 +3563,7 @@ defmodule LoomkinWeb.WorkspaceLive do
         socket
 
       _ask_or_nil ->
-        pending = socket.assigns.pending_permissions ++ [request]
+        pending = [request | socket.assigns.pending_permissions]
         assign(socket, pending_permissions: pending)
     end
   end

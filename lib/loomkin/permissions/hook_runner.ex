@@ -18,6 +18,8 @@ defmodule Loomkin.Permissions.HookRunner do
   do not halt execution — if no rollback occurs, the runner returns `:ok`.
   """
 
+  require Logger
+
   alias Loomkin.Permissions.Manager
 
   @skipped_categories [:read, :coordination]
@@ -80,10 +82,19 @@ defmodule Loomkin.Permissions.HookRunner do
 
   defp do_run_pre_hooks([hook | rest], tool_name, tool_args) do
     if has_callback?(hook, :pre_tool, 2) do
-      case hook.pre_tool(tool_name, tool_args) do
-        :allow -> do_run_pre_hooks(rest, tool_name, tool_args)
-        :deny -> :deny
-        {:ask, _reason} = ask -> ask
+      try do
+        case hook.pre_tool(tool_name, tool_args) do
+          :allow -> do_run_pre_hooks(rest, tool_name, tool_args)
+          :deny -> :deny
+          {:ask, _reason} = ask -> ask
+        end
+      rescue
+        e ->
+          Logger.warning(
+            "[Kin:hook] pre_tool hook #{inspect(hook)} crashed: #{Exception.message(e)}"
+          )
+
+          do_run_pre_hooks(rest, tool_name, tool_args)
       end
     else
       do_run_pre_hooks(rest, tool_name, tool_args)
@@ -94,10 +105,19 @@ defmodule Loomkin.Permissions.HookRunner do
 
   defp do_run_post_hooks([hook | rest], tool_name, tool_args, result) do
     if has_callback?(hook, :post_tool, 3) do
-      case hook.post_tool(tool_name, tool_args, result) do
-        :ok -> do_run_post_hooks(rest, tool_name, tool_args, result)
-        {:warn, _message} -> do_run_post_hooks(rest, tool_name, tool_args, result)
-        {:rollback, _reason} = rollback -> rollback
+      try do
+        case hook.post_tool(tool_name, tool_args, result) do
+          :ok -> do_run_post_hooks(rest, tool_name, tool_args, result)
+          {:warn, _message} -> do_run_post_hooks(rest, tool_name, tool_args, result)
+          {:rollback, _reason} = rollback -> rollback
+        end
+      rescue
+        e ->
+          Logger.warning(
+            "[Kin:hook] post_tool hook #{inspect(hook)} crashed: #{Exception.message(e)}"
+          )
+
+          do_run_post_hooks(rest, tool_name, tool_args, result)
       end
     else
       do_run_post_hooks(rest, tool_name, tool_args, result)
