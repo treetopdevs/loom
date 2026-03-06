@@ -621,6 +621,23 @@ body {
   animation: pulse-soft 2s ease-in-out infinite;
 }
 
+/* ── Agent Card Markdown ── */
+.agent-card-content p { margin: 0.25em 0; }
+.agent-card-content p:first-child { margin-top: 0; }
+.agent-card-content strong { font-weight: 600; color: var(--text-primary); }
+.agent-card-content em { font-style: italic; }
+.agent-card-content ul, .agent-card-content ol { margin: 0.25em 0; padding-left: 1.25em; }
+.agent-card-content li { margin: 0.1em 0; }
+.agent-card-content h1, .agent-card-content h2, .agent-card-content h3 {
+  font-size: inherit; font-weight: 600; margin: 0.5em 0 0.25em; color: var(--text-primary);
+}
+.agent-card-content code {
+  font-size: 0.9em; padding: 0.1em 0.3em; border-radius: 3px;
+  background: var(--surface-3); color: var(--text-secondary);
+}
+.agent-card-content pre { margin: 0.25em 0; overflow-x: auto; }
+.agent-card-content a { color: var(--brand); text-decoration: underline; }
+
 /* ── Inspector Collapse Transition ── */
 .inspector-panel {
   transition: width 0.3s ease, opacity 0.2s ease;

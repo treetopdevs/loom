@@ -13,7 +13,6 @@ defmodule Loomkin.Teams.Rebalancer do
   alias Loomkin.Teams.Comms
   alias Loomkin.Teams.Context
 
-  @pubsub Loomkin.PubSub
   @check_interval_ms 60_000
   @stuck_threshold_ms 5 * 60_000
   @max_nudges 2
@@ -36,17 +35,16 @@ defmodule Loomkin.Teams.Rebalancer do
     team_id = Keyword.fetch!(opts, :team_id)
     check_interval = Keyword.get(opts, :check_interval, @check_interval_ms)
 
-    Phoenix.PubSub.subscribe(@pubsub, "team:#{team_id}")
-    Phoenix.PubSub.subscribe(@pubsub, "team:#{team_id}:tasks")
+    Loomkin.Signals.subscribe("agent.status")
+    Loomkin.Signals.subscribe("agent.tool.*")
+    Loomkin.Signals.subscribe("team.task.*")
+    Loomkin.Signals.subscribe("collaboration.peer.message")
 
     state = %{
       team_id: team_id,
       check_interval: check_interval,
-      # %{agent_name => monotonic_ms} — when they started working
       working_since: %{},
-      # %{agent_name => monotonic_ms} — last observed activity (tool call, message, etc.)
       last_activity: %{},
-      # %{agent_name => count} — number of nudges sent
       nudge_counts: %{}
     }
 
@@ -63,8 +61,20 @@ defmodule Loomkin.Teams.Rebalancer do
     {:noreply, state}
   end
 
+  # Unwrap signal bus delivery tuples
+  def handle_info({:signal, %Jido.Signal{} = sig}, state) do
+    if signal_for_team?(sig, state.team_id) do
+      handle_info(sig, state)
+    else
+      {:noreply, state}
+    end
+  end
+
   # Track agent status transitions
-  def handle_info({:agent_status, name, :working}, state) do
+  def handle_info(
+        %Jido.Signal{type: "agent.status", data: %{agent_name: name, status: :working}},
+        state
+      ) do
     now = System.monotonic_time(:millisecond)
     name = to_string(name)
 
@@ -76,7 +86,11 @@ defmodule Loomkin.Teams.Rebalancer do
     {:noreply, state}
   end
 
-  def handle_info({:agent_status, name, status}, state) when status in [:idle, :done, :error] do
+  def handle_info(
+        %Jido.Signal{type: "agent.status", data: %{agent_name: name, status: status}},
+        state
+      )
+      when status in [:idle, :done, :error] do
     name = to_string(name)
 
     state =
@@ -87,24 +101,34 @@ defmodule Loomkin.Teams.Rebalancer do
     {:noreply, state}
   end
 
-  # Track activity signals — tool calls, messages sent, task events
-  def handle_info({:tool_complete, agent_name, _payload}, state) do
+  def handle_info(%Jido.Signal{type: "agent.status"}, state) do
+    {:noreply, state}
+  end
+
+  # Track activity signals
+  def handle_info(
+        %Jido.Signal{type: "agent.tool.complete", data: %{agent_name: agent_name}},
+        state
+      ) do
     {:noreply, record_activity(state, to_string(agent_name))}
   end
 
-  def handle_info({:tool_executing, agent_name, _payload}, state) do
+  def handle_info(
+        %Jido.Signal{type: "agent.tool.executing", data: %{agent_name: agent_name}},
+        state
+      ) do
     {:noreply, record_activity(state, to_string(agent_name))}
   end
 
-  def handle_info({:task_started, _task_id, owner}, state) do
+  def handle_info(%Jido.Signal{type: "team.task.started", data: %{owner: owner}}, state) do
     {:noreply, record_activity(state, to_string(owner))}
   end
 
-  def handle_info({:task_completed, _task_id, owner, _result}, state) do
+  def handle_info(%Jido.Signal{type: "team.task.completed", data: %{owner: owner}}, state) do
     {:noreply, record_activity(state, to_string(owner))}
   end
 
-  def handle_info({:agent_message, from, _to, _content}, state) do
+  def handle_info(%Jido.Signal{type: "collaboration.peer.message", data: %{from: from}}, state) do
     {:noreply, record_activity(state, to_string(from))}
   end
 
@@ -135,7 +159,6 @@ defmodule Loomkin.Teams.Rebalancer do
     idle_min = div(idle_ms, 60_000)
 
     if nudge_count < @max_nudges do
-      # Send a nudge to the stuck agent
       nudge_msg =
         "You appear stuck (no activity for #{idle_min}m). " <>
           "Consider breaking down your current task, asking for help, or trying a different approach."
@@ -148,17 +171,15 @@ defmodule Loomkin.Teams.Rebalancer do
 
       put_in(state.nudge_counts[agent_name], nudge_count + 1)
     else
-      # Escalate to the team lead
       current_task = find_agent_current_task(state.team_id, agent_name)
       task_info = if current_task, do: current_task.id, else: "unknown"
 
       Comms.broadcast(state.team_id, {:rebalance_needed, agent_name, task_info})
 
       Logger.warning(
-        "[Rebalancer] Escalated #{agent_name} in team #{state.team_id} — stuck #{idle_min}m on task #{task_info}"
+        "[Rebalancer] Escalated #{agent_name} in team #{state.team_id} -- stuck #{idle_min}m on task #{task_info}"
       )
 
-      # Reset nudge count so we don't spam escalations
       put_in(state.nudge_counts[agent_name], 0)
     end
   end
@@ -178,5 +199,13 @@ defmodule Loomkin.Teams.Rebalancer do
 
   defp schedule_check(interval) do
     Process.send_after(self(), :check_stuck, interval)
+  end
+
+  defp signal_for_team?(sig, team_id) do
+    signal_team_id =
+      get_in(sig.data, [:team_id]) ||
+        get_in(sig, [Access.key(:extensions, %{}), "loomkin", "team_id"])
+
+    signal_team_id == nil or signal_team_id == team_id
   end
 end

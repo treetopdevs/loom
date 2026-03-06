@@ -130,12 +130,8 @@ defmodule Loomkin.Teams.AgentQueryTest do
       team_id = unique_team_id()
       %{pid: pid} = start_agent(team_id: team_id, name: "receiver")
 
-      # Broadcast to team (not directly to agent)
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
-        {:query, "q-broadcast", "sender", "Team-wide question?", []}
-      )
+      # Broadcast to team via Comms
+      Comms.broadcast(team_id, {:query, "q-broadcast", "sender", "Team-wide question?", []})
 
       Process.sleep(50)
 

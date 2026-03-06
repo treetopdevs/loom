@@ -5,13 +5,15 @@ defmodule LoomkinWeb.CostDashboardLive do
 
   def mount(_params, _session, socket) do
     if connected?(socket) do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "telemetry:updates")
+      Loomkin.Signals.subscribe("system.metrics.updated")
     end
 
     {:ok, assign_metrics(socket)}
   end
 
-  def handle_info(:metrics_updated, socket) do
+  def handle_info({:signal, %Jido.Signal{} = sig}, socket), do: handle_info(sig, socket)
+
+  def handle_info(%Jido.Signal{type: "system.metrics.updated"}, socket) do
     {:noreply, assign_metrics(socket)}
   end
 

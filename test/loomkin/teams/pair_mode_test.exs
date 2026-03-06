@@ -21,12 +21,28 @@ defmodule Loomkin.Teams.PairModeTest do
       assert {:ok, pair_id} = PairMode.start_pair(team_id, "coder1", "reviewer1")
       assert is_binary(pair_id)
 
-      # Both agents receive notification
-      assert_receive {:pair_started, ^pair_id, :coder, "reviewer1"}
-      assert_receive {:pair_started, ^pair_id, :reviewer, "coder1"}
+      # Both agents receive notification via signals
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:pair_started, ^pair_id, :coder, "reviewer1"}}
+                      }},
+                     500
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:pair_started, ^pair_id, :reviewer, "coder1"}}
+                      }},
+                     500
 
       # Team broadcast
-      assert_receive {:pair_session_started, ^pair_id, "coder1", "reviewer1"}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:pair_session_started, ^pair_id, "coder1", "reviewer1"}}
+                      }},
+                     500
     end
 
     test "stores pair info in ETS", %{team_id: team_id} do
@@ -64,17 +80,44 @@ defmodule Loomkin.Teams.PairModeTest do
       {:ok, pair_id} = PairMode.start_pair(team_id, "coder1", "reviewer1")
 
       # Drain start notifications
-      assert_receive {:pair_started, _, _, _}
-      assert_receive {:pair_started, _, _, _}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:pair_started, _, _, _}}
+                      }},
+                     500
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:pair_started, _, _, _}}
+                      }},
+                     500
 
       assert :ok = PairMode.stop_pair(team_id, pair_id)
 
       # Agents receive stop notification
-      assert_receive {:pair_stopped, ^pair_id}
-      assert_receive {:pair_stopped, ^pair_id}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:pair_stopped, ^pair_id}}
+                      }},
+                     500
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:pair_stopped, ^pair_id}}
+                      }},
+                     500
 
       # Team broadcast
-      assert_receive {:pair_session_stopped, ^pair_id}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:pair_session_stopped, ^pair_id}}
+                      }},
+                     500
 
       # Pair no longer in ETS
       assert :error = PairMode.get_pair(team_id, pair_id)
@@ -132,26 +175,24 @@ defmodule Loomkin.Teams.PairModeTest do
     test "broadcasts event on pair topic", %{team_id: team_id} do
       {:ok, pair_id} = PairMode.start_pair(team_id, "coder1", "reviewer1")
 
-      # Subscribe to the pair topic
-      topic = "team:#{team_id}:pair:#{pair_id}"
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, topic)
+      # Subscribe to collaboration signals
+      Loomkin.Signals.subscribe("collaboration.**")
 
       PairMode.broadcast_event(team_id, pair_id, :intent_broadcast, "coder1", %{
         intent: "refactor auth module"
       })
 
-      assert_receive {:pair_event, message}
-      assert message.event == :intent_broadcast
-      assert message.from == "coder1"
-      assert message.pair_id == pair_id
-      assert message.payload.intent == "refactor auth module"
-      assert is_integer(message.timestamp)
+      assert_receive {:signal, %Jido.Signal{type: "collaboration.pair.event", data: data}}, 500
+      assert data.event == :intent_broadcast
+      assert data.from == "coder1"
+      assert data.pair_id == pair_id
+      assert data.payload.intent == "refactor auth module"
+      assert is_integer(data.timestamp)
     end
 
     test "supports all event types", %{team_id: team_id} do
       {:ok, pair_id} = PairMode.start_pair(team_id, "coder1", "reviewer1")
-      topic = "team:#{team_id}:pair:#{pair_id}"
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, topic)
+      Loomkin.Signals.subscribe("collaboration.**")
 
       events = [
         :intent_broadcast,
@@ -163,7 +204,13 @@ defmodule Loomkin.Teams.PairModeTest do
 
       Enum.each(events, fn event_type ->
         PairMode.broadcast_event(team_id, pair_id, event_type, "coder1")
-        assert_receive {:pair_event, %{event: ^event_type}}
+
+        assert_receive {:signal,
+                        %Jido.Signal{
+                          type: "collaboration.pair.event",
+                          data: %{event: ^event_type}
+                        }},
+                       500
       end)
     end
   end
@@ -200,7 +247,13 @@ defmodule Loomkin.Teams.PairModeTest do
       {:ok, node} =
         PairMode.log_feedback(team_id, pair_id, "reviewer1", "Looks good overall")
 
-      assert_receive {:decision_logged, node_id, "reviewer1"}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "decision.logged",
+                        data: %{node_id: node_id, agent_name: "reviewer1"}
+                      }},
+                     500
+
       assert node_id == node.id
     end
 

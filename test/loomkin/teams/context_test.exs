@@ -185,10 +185,16 @@ defmodule Loomkin.Teams.ContextTest do
 
   describe "broadcast_intent/4" do
     test "broadcasts intent message to team topic", %{team_id: team_id} do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{team_id}")
+      Loomkin.Signals.subscribe("collaboration.**")
 
       Context.broadcast_intent(team_id, "alice", "lib/foo.ex", "refactoring module")
-      assert_receive {:intent, "alice", "lib/foo.ex", "refactoring module"}
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:intent, "alice", "lib/foo.ex", "refactoring module"}}
+                      }},
+                     500
     end
   end
 

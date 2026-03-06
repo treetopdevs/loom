@@ -146,6 +146,7 @@ defmodule Loomkin.Teams.ContextRetrievalTest do
       assert hd(result).content == "raw content here"
     end
 
+    @tag :llm_dependent
     test "explicit mode: :smart uses smart retrieval", %{team_id: team_id} do
       messages = [%{role: :user, content: "smart content here"}]
       %{id: id} = spawn_keeper(team_id, topic: "smart test", messages: messages)

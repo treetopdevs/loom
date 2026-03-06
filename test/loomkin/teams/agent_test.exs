@@ -84,14 +84,13 @@ defmodule Loomkin.Teams.AgentTest do
     end
   end
 
-  describe "PubSub subscriptions" do
-    test "agent subscribes to team topic" do
+  describe "message handling" do
+    test "agent handles context_update" do
       %{pid: pid, team_id: team_id} = start_agent()
 
       # Send a message on the team topic — agent should handle it
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
+      send(
+        pid,
         {:context_update, "peer-1", %{info: "test data"}}
       )
 
@@ -102,14 +101,10 @@ defmodule Loomkin.Teams.AgentTest do
       assert state.context["peer-1"] == %{info: "test data"}
     end
 
-    test "agent subscribes to direct agent topic" do
+    test "agent handles peer_message" do
       %{pid: pid, team_id: team_id, name: name} = start_agent()
 
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}:agent:#{name}",
-        {:peer_message, "lead", "do the thing"}
-      )
+      send(pid, {:peer_message, "lead", "do the thing"})
 
       Process.sleep(50)
 
@@ -175,13 +170,12 @@ defmodule Loomkin.Teams.AgentTest do
     end
   end
 
-  describe "context_update via PubSub" do
+  describe "context_update handling" do
     test "stores context from peers" do
       %{pid: pid, team_id: team_id} = start_agent()
 
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
+      send(
+        pid,
         {:context_update, "researcher", %{files: ["lib/foo.ex"]}}
       )
 
@@ -194,17 +188,15 @@ defmodule Loomkin.Teams.AgentTest do
     test "updates replace previous context from same peer" do
       %{pid: pid, team_id: team_id} = start_agent()
 
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
+      send(
+        pid,
         {:context_update, "researcher", %{v: 1}}
       )
 
       Process.sleep(50)
 
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
+      send(
+        pid,
         {:context_update, "researcher", %{v: 2}}
       )
 
@@ -230,12 +222,9 @@ defmodule Loomkin.Teams.AgentTest do
       [{^pid1, _}] = Registry.lookup(Loomkin.Teams.AgentRegistry, {team_id, name1})
       [{^pid2, _}] = Registry.lookup(Loomkin.Teams.AgentRegistry, {team_id, name2})
 
-      # Both receive team-level broadcasts
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
-        {:context_update, "lead", %{plan: "do stuff"}}
-      )
+      # Both receive team-level broadcasts (send directly since agents use Signal Bus now)
+      send(pid1, {:context_update, "lead", %{plan: "do stuff"}})
+      send(pid2, {:context_update, "lead", %{plan: "do stuff"}})
 
       Process.sleep(50)
 
@@ -264,9 +253,8 @@ defmodule Loomkin.Teams.AgentTest do
     test "injects system message with observation and goal" do
       %{pid: pid, team_id: team_id} = start_agent()
 
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
+      send(
+        pid,
         {:discovery_relevant,
          %{
            observation_title: "Cache hit rate dropped",
@@ -291,9 +279,8 @@ defmodule Loomkin.Teams.AgentTest do
     test "includes keeper reference when keeper_id is present" do
       %{pid: pid, team_id: team_id} = start_agent()
 
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
+      send(
+        pid,
         {:discovery_relevant,
          %{
            observation_title: "Memory leak found",
@@ -315,9 +302,8 @@ defmodule Loomkin.Teams.AgentTest do
     test "injects system message with confidence warning" do
       %{pid: pid, team_id: team_id} = start_agent()
 
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
+      send(
+        pid,
         {:confidence_warning,
          %{
            source_title: "Use PostgreSQL",
@@ -342,9 +328,8 @@ defmodule Loomkin.Teams.AgentTest do
     test "includes keeper reference when keeper_id is present" do
       %{pid: pid, team_id: team_id} = start_agent()
 
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
+      send(
+        pid,
         {:confidence_warning,
          %{
            source_title: "Use Redis",
@@ -364,9 +349,8 @@ defmodule Loomkin.Teams.AgentTest do
     test "multiple nervous system messages accumulate" do
       %{pid: pid, team_id: team_id} = start_agent()
 
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
+      send(
+        pid,
         {:discovery_relevant,
          %{
            observation_title: "Obs 1",
@@ -376,9 +360,8 @@ defmodule Loomkin.Teams.AgentTest do
          }}
       )
 
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
+      send(
+        pid,
         {:confidence_warning,
          %{
            source_title: "Decision X",

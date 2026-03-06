@@ -177,7 +177,10 @@ defmodule Loomkin.Session.Manager do
     end
   end
 
-  defp broadcast(session_id, message) do
-    Phoenix.PubSub.broadcast(Loomkin.PubSub, "session:#{session_id}", message)
+  defp broadcast(session_id, {:team_available, _sid, team_id}) do
+    signal =
+      Loomkin.Signals.Session.TeamAvailable.new!(%{session_id: session_id, team_id: team_id})
+
+    Loomkin.Signals.publish(signal)
   end
 end

@@ -106,6 +106,24 @@ defmodule Loomkin.Session.Persistence do
     |> Repo.one()
   end
 
+  @spec list_projects() :: [map()]
+  def list_projects do
+    Session
+    |> group_by([s], s.project_path)
+    |> select([s], %{
+      project_path: s.project_path,
+      session_count: count(s.id),
+      last_active_at: max(s.updated_at)
+    })
+    |> order_by([s], desc: max(s.updated_at))
+    |> Repo.all()
+  end
+
+  @spec list_sessions_for_project(String.t()) :: [Session.t()]
+  def list_sessions_for_project(project_path) do
+    list_sessions(project_path: project_path)
+  end
+
   defp maybe_filter_status(query, nil), do: query
 
   defp maybe_filter_status(query, status) do

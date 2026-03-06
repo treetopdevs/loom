@@ -34,18 +34,15 @@ defmodule Loomkin.Tools.AskUser do
     Registry.register(Loomkin.Teams.AgentRegistry, {:ask_user, question_id}, caller)
 
     # Broadcast the question to the team topic so WorkspaceLive picks it up
-    Phoenix.PubSub.broadcast(
-      Loomkin.PubSub,
-      "team:#{team_id}",
-      {:ask_user_question,
-       %{
-         question_id: question_id,
-         agent_name: agent_name,
-         team_id: team_id,
-         question: question,
-         options: options
-       }}
-    )
+    signal =
+      Loomkin.Signals.Team.AskUserQuestion.new!(%{
+        question_id: question_id,
+        agent_name: agent_name,
+        team_id: team_id,
+        question: question
+      })
+
+    Loomkin.Signals.publish(%{signal | data: Map.put(signal.data, :options, options)})
 
     Logger.info("[AskUser] Agent #{agent_name} asking: #{question} (#{question_id})")
 

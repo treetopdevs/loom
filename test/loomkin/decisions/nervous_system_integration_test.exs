@@ -7,7 +7,7 @@ defmodule Loomkin.Decisions.NervousSystemIntegrationTest do
   alias Loomkin.Teams.Comms
   alias Loomkin.Schemas.Session
 
-  @pubsub Loomkin.PubSub
+  # Signal bus used instead of PubSub
 
   defp create_session do
     %Session{}
@@ -54,7 +54,7 @@ defmodule Loomkin.Decisions.NervousSystemIntegrationTest do
       {:ok, _} = Graph.add_edge(goal.id, action.id, :enables)
 
       # Subscribe as Agent A to receive notifications
-      Phoenix.PubSub.subscribe(@pubsub, "team:#{team_id}:agent:agent-a")
+      Comms.subscribe(team_id, "agent-a")
 
       # Agent B logs an observation linked to the action
       {:ok, obs} =
@@ -68,10 +68,17 @@ defmodule Loomkin.Decisions.NervousSystemIntegrationTest do
       {:ok, _} = Graph.add_edge(action.id, obs.id, :enables)
 
       # Re-broadcast so Broadcaster picks it up with edges in place
-      Phoenix.PubSub.broadcast(@pubsub, "decision_graph", {:node_added, obs})
+      signal = Loomkin.Signals.Decision.NodeAdded.new!(%{team_id: team_id})
+      Loomkin.Signals.publish(%{signal | data: Map.put(signal.data, :node, obs)})
 
-      # Agent A should receive discovery notification
-      assert_receive {:discovery_relevant, payload}, 1000
+      # Agent A should receive discovery notification (via Comms.send_to -> peer.message signal)
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:discovery_relevant, payload}}
+                      }},
+                     1000
+
       assert payload.observation_id == obs.id
       assert payload.observation_title == "Found security vulnerability in provider X"
       assert payload.goal_id == goal.id
@@ -88,17 +95,17 @@ defmodule Loomkin.Decisions.NervousSystemIntegrationTest do
     } do
       keeper_id = Ecto.UUID.generate()
 
-      # Simulate a keeper_created event (normally from ContextOffload)
-      Comms.broadcast(
-        team_id,
-        {:keeper_created,
-         %{
-           id: keeper_id,
-           topic: "authentication-research",
-           source: "agent-b",
-           tokens: 1200
-         }}
-      )
+      # Emit a proper context.keeper.created signal (AutoLogger subscribes to this type)
+      signal =
+        Loomkin.Signals.Context.KeeperCreated.new!(%{
+          id: keeper_id,
+          topic: "authentication-research",
+          source: "agent-b",
+          team_id: team_id,
+          tokens: 1200
+        })
+
+      Loomkin.Signals.publish(signal)
 
       Process.sleep(100)
 
@@ -164,8 +171,13 @@ defmodule Loomkin.Decisions.NervousSystemIntegrationTest do
       updated_action = Graph.get_node(action.id)
       assert updated_action.metadata["upstream_uncertainty"] == true
 
-      # Agent "coder" should receive confidence_warning
-      assert_receive {:confidence_warning, warning}
+      # Agent "coder" should receive confidence_warning (via Comms.send_to -> peer.message signal)
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:confidence_warning, warning}}
+                      }}
+
       assert warning.source_node_id == decision.id
       assert warning.source_title == "Use GraphQL"
       assert warning.source_confidence == 30

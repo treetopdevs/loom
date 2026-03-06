@@ -28,7 +28,8 @@ defmodule LoomkinWeb.Router do
   scope "/", LoomkinWeb do
     pipe_through :browser
 
-    live "/", WorkspaceLive, :index
+    live "/", ProjectPickerLive, :index
+    live "/sessions/new", WorkspaceLive, :new
     live "/sessions/:session_id", WorkspaceLive, :show
     live "/dashboard", CostDashboardLive, :index
   end

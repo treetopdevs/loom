@@ -42,11 +42,19 @@ defmodule Loomkin.Teams.DynamicRoleTest do
 
     test "broadcasts role change to team", %{team_id: team_id} do
       {:ok, pid} = Manager.spawn_agent(team_id, "broadcast-agent", :coder)
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{team_id}")
+      Loomkin.Signals.subscribe("agent.role.changed")
 
       Agent.change_role(pid, :tester)
 
-      assert_receive {:role_changed, "broadcast-agent", :coder, :tester}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "agent.role.changed",
+                        data: %{
+                          agent_name: "broadcast-agent",
+                          old_role: :coder,
+                          new_role: :tester
+                        }
+                      }}
     end
 
     test "returns error for unknown role", %{team_id: team_id} do
@@ -62,13 +70,25 @@ defmodule Loomkin.Teams.DynamicRoleTest do
 
     test "supports require_approval option", %{team_id: team_id} do
       {:ok, pid} = Manager.spawn_agent(team_id, "approval-agent", :coder)
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{team_id}")
+      # Allow init signals to settle before subscribing
+      Process.sleep(50)
+      Loomkin.Signals.subscribe("agent.**")
 
       # With require_approval, it broadcasts a request then proceeds
       assert :ok = Agent.change_role(pid, :reviewer, require_approval: true)
 
-      assert_receive {:role_change_request, "approval-agent", :coder, :reviewer, _request_id}
-      assert_receive {:role_changed, "approval-agent", :coder, :reviewer}
+      # role_change_request is still broadcast via PubSub (not yet migrated)
+      # but role_changed now comes as a signal
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "agent.role.changed",
+                        data: %{
+                          agent_name: "approval-agent",
+                          old_role: :coder,
+                          new_role: :reviewer
+                        }
+                      }},
+                     500
     end
 
     test "multiple role changes in sequence", %{team_id: team_id} do

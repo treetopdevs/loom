@@ -178,11 +178,8 @@ defmodule Loomkin.Config do
     store_config(resolve_env_vars(config))
     :ets.insert(@table, {:project_path, project_path})
 
-    Phoenix.PubSub.broadcast(
-      Loomkin.PubSub,
-      "loom:system",
-      {:config_loaded, Map.put(config, :project_path, project_path)}
-    )
+    signal = Loomkin.Signals.System.ConfigLoaded.new!(%{}, subject: project_path)
+    Loomkin.Signals.publish(signal)
 
     {:reply, :ok, state}
   end

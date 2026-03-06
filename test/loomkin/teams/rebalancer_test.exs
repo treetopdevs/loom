@@ -3,8 +3,6 @@ defmodule Loomkin.Teams.RebalancerTest do
 
   alias Loomkin.Teams.{Manager, Rebalancer}
 
-  @pubsub Loomkin.PubSub
-
   setup do
     # Disable nervous system so we can start Rebalancer manually
     Application.put_env(:loomkin, :start_nervous_system, false)
@@ -20,7 +18,7 @@ defmodule Loomkin.Teams.RebalancerTest do
   end
 
   describe "init/1" do
-    test "starts and subscribes to team PubSub", %{team_id: team_id} do
+    test "starts and subscribes to signals", %{team_id: team_id} do
       {:ok, pid} = Rebalancer.start_link(team_id: team_id, check_interval: 100_000)
       assert Process.alive?(pid)
       GenServer.stop(pid)
@@ -31,8 +29,16 @@ defmodule Loomkin.Teams.RebalancerTest do
     test "tracks working agents on status events", %{team_id: team_id} do
       {:ok, pid} = Rebalancer.start_link(team_id: team_id, check_interval: 100_000)
 
-      # Simulate agent starting to work
-      Phoenix.PubSub.broadcast(@pubsub, "team:#{team_id}", {:agent_status, "alice", :working})
+      send(
+        pid,
+        {:signal,
+         Loomkin.Signals.Agent.Status.new!(%{
+           agent_name: "alice",
+           team_id: team_id,
+           status: :working
+         })}
+      )
+
       Process.sleep(50)
 
       state = :sys.get_state(pid)
@@ -45,10 +51,28 @@ defmodule Loomkin.Teams.RebalancerTest do
     test "clears tracking when agent becomes idle", %{team_id: team_id} do
       {:ok, pid} = Rebalancer.start_link(team_id: team_id, check_interval: 100_000)
 
-      Phoenix.PubSub.broadcast(@pubsub, "team:#{team_id}", {:agent_status, "alice", :working})
+      send(
+        pid,
+        {:signal,
+         Loomkin.Signals.Agent.Status.new!(%{
+           agent_name: "alice",
+           team_id: team_id,
+           status: :working
+         })}
+      )
+
       Process.sleep(50)
 
-      Phoenix.PubSub.broadcast(@pubsub, "team:#{team_id}", {:agent_status, "alice", :idle})
+      send(
+        pid,
+        {:signal,
+         Loomkin.Signals.Agent.Status.new!(%{
+           agent_name: "alice",
+           team_id: team_id,
+           status: :idle
+         })}
+      )
+
       Process.sleep(50)
 
       state = :sys.get_state(pid)
@@ -63,7 +87,16 @@ defmodule Loomkin.Teams.RebalancerTest do
     test "records activity from tool results", %{team_id: team_id} do
       {:ok, pid} = Rebalancer.start_link(team_id: team_id, check_interval: 100_000)
 
-      Phoenix.PubSub.broadcast(@pubsub, "team:#{team_id}", {:agent_status, "alice", :working})
+      send(
+        pid,
+        {:signal,
+         Loomkin.Signals.Agent.Status.new!(%{
+           agent_name: "alice",
+           team_id: team_id,
+           status: :working
+         })}
+      )
+
       Process.sleep(50)
 
       old_state = :sys.get_state(pid)
@@ -71,10 +104,14 @@ defmodule Loomkin.Teams.RebalancerTest do
 
       Process.sleep(10)
 
-      Phoenix.PubSub.broadcast(
-        @pubsub,
-        "team:#{team_id}",
-        {:tool_complete, "alice", %{tool_name: "file_read", result: "ok"}}
+      send(
+        pid,
+        {:signal,
+         Loomkin.Signals.Agent.ToolComplete.new!(%{
+           agent_name: "alice",
+           team_id: team_id,
+           tool_name: "file_read"
+         })}
       )
 
       Process.sleep(50)
@@ -93,10 +130,14 @@ defmodule Loomkin.Teams.RebalancerTest do
         %{state | nudge_counts: Map.put(state.nudge_counts, "alice", 1)}
       end)
 
-      Phoenix.PubSub.broadcast(
-        @pubsub,
-        "team:#{team_id}",
-        {:tool_complete, "alice", %{tool_name: "shell", result: "ok"}}
+      send(
+        pid,
+        {:signal,
+         Loomkin.Signals.Agent.ToolComplete.new!(%{
+           agent_name: "alice",
+           team_id: team_id,
+           tool_name: "shell"
+         })}
       )
 
       Process.sleep(50)
@@ -111,9 +152,6 @@ defmodule Loomkin.Teams.RebalancerTest do
   describe "stuck detection" do
     test "nudges stuck agent on check", %{team_id: team_id} do
       {:ok, pid} = Rebalancer.start_link(team_id: team_id, check_interval: 100_000)
-
-      # Subscribe to get the nudge message
-      Phoenix.PubSub.subscribe(@pubsub, "team:#{team_id}:agent:alice")
 
       # Simulate agent working with old timestamps (6 minutes ago)
       old_time = System.monotonic_time(:millisecond) - 6 * 60_000
@@ -135,8 +173,8 @@ defmodule Loomkin.Teams.RebalancerTest do
     test "escalates after max nudges", %{team_id: team_id} do
       {:ok, pid} = Rebalancer.start_link(team_id: team_id, check_interval: 100_000)
 
-      # Subscribe to get the escalation broadcast
-      Phoenix.PubSub.subscribe(@pubsub, "team:#{team_id}")
+      # Subscribe to signals to get the escalation
+      Loomkin.Signals.subscribe("collaboration.**")
 
       old_time = System.monotonic_time(:millisecond) - 6 * 60_000
 
@@ -153,7 +191,8 @@ defmodule Loomkin.Teams.RebalancerTest do
       send(pid, :check_stuck)
       Process.sleep(100)
 
-      assert_receive {:rebalance_needed, "alice", _task_info}
+      # Escalation is now broadcast as a signal via Comms.broadcast
+      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message"}}, 500
 
       # Nudge count resets after escalation
       state = :sys.get_state(pid)

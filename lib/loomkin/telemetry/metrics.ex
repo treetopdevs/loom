@@ -369,15 +369,44 @@ defmodule Loomkin.Telemetry.Metrics do
   end
 
   defp broadcast_update do
-    Phoenix.PubSub.broadcast(Loomkin.PubSub, "telemetry:updates", :metrics_updated)
+    signal = Loomkin.Signals.System.MetricsUpdated.new!()
+    Loomkin.Signals.publish(signal)
   rescue
     e ->
       Logger.debug("[Metrics] Broadcast failed: #{Exception.message(e)}")
       :ok
   end
 
-  defp broadcast_team(team_id, event) do
-    Phoenix.PubSub.broadcast(Loomkin.PubSub, "telemetry:team:#{team_id}", event)
+  defp broadcast_team(_team_id, {:team_llm_stop, payload}) do
+    signal =
+      Loomkin.Signals.Team.LlmStop.new!(%{team_id: payload.team_id}, subject: payload.agent_name)
+
+    Loomkin.Signals.publish(%{signal | data: Map.merge(signal.data, payload)})
+  rescue
+    e ->
+      Logger.debug("[Metrics] Team broadcast failed: #{Exception.message(e)}")
+      :ok
+  end
+
+  defp broadcast_team(_team_id, {:team_escalation, payload}) do
+    signal =
+      Loomkin.Signals.Agent.Escalation.new!(%{
+        agent_name: payload.agent_name,
+        team_id: payload.team_id,
+        from_model: payload.from_model,
+        to_model: payload.to_model
+      })
+
+    Loomkin.Signals.publish(signal)
+  rescue
+    e ->
+      Logger.debug("[Metrics] Team broadcast failed: #{Exception.message(e)}")
+      :ok
+  end
+
+  defp broadcast_team(_team_id, {:team_budget_warning, payload}) do
+    signal = Loomkin.Signals.Team.BudgetWarning.new!(%{team_id: payload.team_id})
+    Loomkin.Signals.publish(%{signal | data: Map.merge(signal.data, payload)})
   rescue
     e ->
       Logger.debug("[Metrics] Team broadcast failed: #{Exception.message(e)}")

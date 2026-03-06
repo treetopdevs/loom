@@ -74,9 +74,8 @@ defmodule Loomkin.Teams.Debate do
 
     debate_id = Ecto.UUID.generate()
 
-    # Subscribe the current process to a dedicated debate topic
-    debate_topic = "team:#{team_id}:debate:#{debate_id}"
-    Phoenix.PubSub.subscribe(Loomkin.PubSub, debate_topic)
+    # Subscribe the current process to debate responses for this debate
+    Loomkin.Signals.subscribe("collaboration.debate.response")
 
     # Notify participants that a debate has started
     Enum.each(participants, fn participant ->
@@ -614,7 +613,11 @@ defmodule Loomkin.Teams.Debate do
 
   defp do_collect(debate_id, phase, expected, received, acc, timeout) do
     receive do
-      {:debate_response, ^debate_id, ^phase, response} ->
+      {:signal,
+       %Jido.Signal{
+         type: "collaboration.debate.response",
+         data: %{debate_id: ^debate_id, phase: ^phase, response: response}
+       }} ->
         from = response.from
 
         if MapSet.member?(expected, from) and not MapSet.member?(received, from) do
@@ -796,10 +799,12 @@ defmodule Loomkin.Teams.Debate do
   """
   @spec submit_response(String.t(), String.t(), atom(), map()) :: :ok
   def submit_response(team_id, debate_id, phase, response) do
-    Phoenix.PubSub.broadcast(
-      Loomkin.PubSub,
-      "team:#{team_id}:debate:#{debate_id}",
-      {:debate_response, debate_id, phase, response}
-    )
+    signal =
+      Loomkin.Signals.Collaboration.DebateResponse.new!(
+        %{debate_id: debate_id, team_id: team_id, phase: phase},
+        subject: debate_id
+      )
+
+    Loomkin.Signals.publish(%{signal | data: Map.merge(signal.data, %{response: response})})
   end
 end

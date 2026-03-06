@@ -68,28 +68,23 @@ defmodule LoomkinWeb.WorkspaceLive do
         # Cached roster data (recomputed on roster_version changes, not per render)
         cached_agents: [],
         cached_tasks: [],
-        cached_budget: %{spent: 0.0, limit: 5.0}
+        cached_budget: %{spent: 0.0, limit: 5.0},
+        last_user_message: nil,
+        # Message queue UI state
+        queue_drawer: nil,
+        schedule_popover: false,
+        agent_queues: %{},
+        scheduled_messages: [],
+        queue_selected_ids: MapSet.new(),
+        queue_editing_id: nil,
+        schedule_delay_minutes: 5
       )
 
-    project_path = File.cwd!()
-
     case socket.assigns.live_action do
-      :index ->
-        if params["new"] == "true" do
-          # Explicit new session — skip auto-resume
-          session_id = Ecto.UUID.generate()
-          {:ok, start_and_subscribe(socket, session_id)}
-        else
-          # Auto-resume the latest active session for this project
-          case Loomkin.Session.Persistence.find_latest_active_session(project_path) do
-            %{id: existing_id} ->
-              {:ok, push_navigate(socket, to: ~p"/sessions/#{existing_id}")}
-
-            nil ->
-              session_id = Ecto.UUID.generate()
-              {:ok, start_and_subscribe(socket, session_id)}
-          end
-        end
+      :new ->
+        project_path = params["project_path"] || File.cwd!()
+        session_id = Ecto.UUID.generate()
+        {:ok, start_and_subscribe(socket, session_id, project_path)}
 
       :show ->
         session_id = params["session_id"]
@@ -97,10 +92,10 @@ defmodule LoomkinWeb.WorkspaceLive do
     end
   end
 
-  defp start_and_subscribe(socket, session_id) do
+  defp start_and_subscribe(socket, session_id, project_path \\ nil) do
     # Use full lead tool set — every session is a team-capable lead agent
     tools = Loomkin.Tools.Registry.for_lead()
-    project_path = File.cwd!()
+    project_path = project_path || File.cwd!()
 
     Logger.debug(
       "[WorkspaceLive] start_and_subscribe session=#{session_id} connected=#{connected?(socket)}"
@@ -162,8 +157,10 @@ defmodule LoomkinWeb.WorkspaceLive do
     socket =
       if connected?(socket) do
         Session.subscribe(session_id)
-        Phoenix.PubSub.subscribe(Loomkin.PubSub, "telemetry:updates")
-        Phoenix.PubSub.subscribe(Loomkin.PubSub, "auth:status")
+
+        # Subscribe to session and system signals via the Bus
+        Loomkin.Signals.subscribe("session.**")
+        Loomkin.Signals.subscribe("system.**")
         ensure_index_started(project_path)
 
         team_id = socket.assigns[:team_id]
@@ -228,7 +225,7 @@ defmodule LoomkinWeb.WorkspaceLive do
       messages: messages,
       session_cost: session_metrics.cost_usd,
       session_tokens: session_metrics.prompt_tokens + session_metrics.completion_tokens,
-      page_title: "Loomkin - #{short_id(session_id)}",
+      page_title: session_page_title(session_id),
       child_teams: child_teams,
       active_team_id: active_team_id,
       switch_project_modal: nil,
@@ -266,7 +263,12 @@ defmodule LoomkinWeb.WorkspaceLive do
 
             {:noreply,
              socket
-             |> assign(input_text: "", reply_target: nil, activity_events: events)
+             |> assign(
+               input_text: "",
+               reply_target: nil,
+               activity_events: events,
+               last_user_message: %{text: trimmed, to: agent_name}
+             )
              |> push_event("clear-input", %{})}
 
           :error ->
@@ -300,7 +302,8 @@ defmodule LoomkinWeb.WorkspaceLive do
              |> assign(
                input_text: "",
                reply_target: nil,
-               activity_events: events
+               activity_events: events,
+               last_user_message: %{text: trimmed, to: agent_name}
              )
              |> push_event("clear-input", %{})}
 
@@ -348,13 +351,32 @@ defmodule LoomkinWeb.WorkspaceLive do
             socket
           end
 
+        updated_messages = Enum.take(socket.assigns.messages ++ [user_msg], -@max_messages)
+
+        # Auto-title page from first user message
+        socket =
+          if socket.assigns.messages == [] do
+            title =
+              trimmed
+              |> String.split(~r/[\n\r]/, parts: 2)
+              |> List.first("")
+              |> String.trim()
+              |> String.slice(0, 60)
+
+            title = if title == "", do: "New session", else: title
+            assign(socket, page_title: title)
+          else
+            socket
+          end
+
         {:noreply,
          socket
          |> assign(
            input_text: "",
            async_task: task,
            status: :thinking,
-           messages: Enum.take(socket.assigns.messages ++ [user_msg], -@max_messages)
+           messages: updated_messages,
+           last_user_message: %{text: trimmed, to: "Team"}
          )
          |> push_event("clear-input", %{})}
     end
@@ -739,6 +761,271 @@ defmodule LoomkinWeb.WorkspaceLive do
     {:noreply, socket}
   end
 
+  # --- Queue Drawer ---
+
+  def handle_event("open_queue_drawer", %{"agent" => agent_name, "team-id" => team_id}, socket) do
+    {:noreply,
+     assign(socket,
+       queue_drawer: %{agent: agent_name, team_id: team_id},
+       queue_selected_ids: MapSet.new(),
+       queue_editing_id: nil
+     )}
+  end
+
+  def handle_event("toggle_queue_from_composer", _params, socket) do
+    case socket.assigns.reply_target do
+      %{agent: agent_name, team_id: team_id} ->
+        {:noreply,
+         assign(socket,
+           queue_drawer: %{agent: agent_name, team_id: team_id},
+           queue_selected_ids: MapSet.new(),
+           queue_editing_id: nil
+         )}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("close_queue_drawer", _params, socket) do
+    {:noreply,
+     assign(socket,
+       queue_drawer: nil,
+       queue_selected_ids: MapSet.new(),
+       queue_editing_id: nil
+     )}
+  end
+
+  def handle_event("toggle_queue_select", %{"agent" => _agent, "id" => id}, socket) do
+    selected = socket.assigns.queue_selected_ids
+
+    selected =
+      if MapSet.member?(selected, id) do
+        MapSet.delete(selected, id)
+      else
+        MapSet.put(selected, id)
+      end
+
+    {:noreply, assign(socket, queue_selected_ids: selected)}
+  end
+
+  def handle_event("deselect_all_queued", _params, socket) do
+    {:noreply, assign(socket, queue_selected_ids: MapSet.new())}
+  end
+
+  def handle_event("start_queued_edit", %{"id" => id}, socket) do
+    {:noreply, assign(socket, queue_editing_id: id)}
+  end
+
+  def handle_event("cancel_queued_edit", _params, socket) do
+    {:noreply, assign(socket, queue_editing_id: nil)}
+  end
+
+  def handle_event(
+        "save_queued_edit",
+        %{"agent" => agent_name, "message_id" => id, "content" => content},
+        socket
+      ) do
+    team_id = get_in(socket.assigns, [:queue_drawer, :team_id]) || socket.assigns.active_team_id
+
+    case Loomkin.Teams.Manager.find_agent(team_id, agent_name) do
+      {:ok, pid} ->
+        Loomkin.Teams.Agent.edit_queued(pid, id, content)
+
+      :error ->
+        Logger.warning("[WorkspaceLive] Cannot edit queued — agent #{agent_name} not found")
+    end
+
+    {:noreply, assign(socket, queue_editing_id: nil)}
+  end
+
+  def handle_event("delete_queued", %{"agent" => agent_name, "id" => id}, socket) do
+    team_id = get_in(socket.assigns, [:queue_drawer, :team_id]) || socket.assigns.active_team_id
+
+    case Loomkin.Teams.Manager.find_agent(team_id, agent_name) do
+      {:ok, pid} ->
+        Loomkin.Teams.Agent.delete_queued(pid, id)
+
+      :error ->
+        Logger.warning("[WorkspaceLive] Cannot delete queued — agent #{agent_name} not found")
+    end
+
+    {:noreply, socket}
+  end
+
+  def handle_event("delete_selected_queued", %{"agent" => agent_name}, socket) do
+    team_id = get_in(socket.assigns, [:queue_drawer, :team_id]) || socket.assigns.active_team_id
+    ids = MapSet.to_list(socket.assigns.queue_selected_ids)
+
+    case Loomkin.Teams.Manager.find_agent(team_id, agent_name) do
+      {:ok, pid} ->
+        Enum.each(ids, fn id -> Loomkin.Teams.Agent.delete_queued(pid, id) end)
+
+      :error ->
+        Logger.warning("[WorkspaceLive] Cannot delete queued — agent #{agent_name} not found")
+    end
+
+    {:noreply, assign(socket, queue_selected_ids: MapSet.new())}
+  end
+
+  def handle_event("squash_queued", %{"agent" => agent_name}, socket) do
+    team_id = get_in(socket.assigns, [:queue_drawer, :team_id]) || socket.assigns.active_team_id
+    ids = MapSet.to_list(socket.assigns.queue_selected_ids)
+
+    case Loomkin.Teams.Manager.find_agent(team_id, agent_name) do
+      {:ok, pid} ->
+        Loomkin.Teams.Agent.squash_queued(pid, ids)
+
+      :error ->
+        Logger.warning("[WorkspaceLive] Cannot squash queued — agent #{agent_name} not found")
+    end
+
+    {:noreply, assign(socket, queue_selected_ids: MapSet.new())}
+  end
+
+  def handle_event("reorder_queue", %{"agent" => agent_name, "ids" => ordered_ids}, socket) do
+    team_id = get_in(socket.assigns, [:queue_drawer, :team_id]) || socket.assigns.active_team_id
+
+    case Loomkin.Teams.Manager.find_agent(team_id, agent_name) do
+      {:ok, pid} ->
+        Loomkin.Teams.Agent.reorder_queue(pid, :pending, ordered_ids)
+
+      :error ->
+        Logger.warning("[WorkspaceLive] Cannot reorder queue — agent #{agent_name} not found")
+    end
+
+    {:noreply, socket}
+  end
+
+  # --- Schedule Messages ---
+
+  def handle_event("toggle_scheduler", _params, socket) do
+    {:noreply, assign(socket, schedule_popover: !socket.assigns.schedule_popover)}
+  end
+
+  def handle_event("close_scheduler", _params, socket) do
+    {:noreply, assign(socket, schedule_popover: false)}
+  end
+
+  def handle_event("set_schedule_delay", %{"minutes" => minutes}, socket) do
+    {:noreply, assign(socket, schedule_delay_minutes: String.to_integer(minutes))}
+  end
+
+  def handle_event(
+        "schedule_message",
+        %{"content" => content, "delay_minutes" => delay} = params,
+        socket
+      ) do
+    target_agent = params["target_agent"]
+    delay_minutes = String.to_integer(delay)
+    team_id = socket.assigns.active_team_id
+
+    scheduled_msg = %{
+      id: Ecto.UUID.generate(),
+      content: content,
+      target_agent: target_agent,
+      team_id: team_id,
+      delay_minutes: delay_minutes,
+      deliver_at: DateTime.add(DateTime.utc_now(), delay_minutes * 60, :second),
+      scheduled_at: DateTime.utc_now()
+    }
+
+    scheduled = socket.assigns.scheduled_messages ++ [scheduled_msg]
+
+    # Start a timer process to deliver the message
+    Process.send_after(self(), {:deliver_scheduled, scheduled_msg.id}, delay_minutes * 60 * 1000)
+
+    {:noreply,
+     socket
+     |> assign(
+       scheduled_messages: scheduled,
+       schedule_popover: false,
+       input_text: ""
+     )
+     |> put_flash(:info, "Message scheduled for #{delay_minutes}m from now")
+     |> push_event("clear-input", %{})}
+  end
+
+  def handle_event("cancel_scheduled", %{"id" => id}, socket) do
+    scheduled = Enum.reject(socket.assigns.scheduled_messages, &(&1.id == id))
+    {:noreply, assign(socket, scheduled_messages: scheduled)}
+  end
+
+  # --- Enqueue & Guidance ---
+
+  def handle_event("enqueue_message", _params, socket) do
+    text = String.trim(socket.assigns.input_text || "")
+
+    if text == "" do
+      {:noreply, socket}
+    else
+      case socket.assigns.reply_target do
+        %{agent: agent_name, team_id: team_id} ->
+          case Loomkin.Teams.Manager.find_agent(team_id, agent_name) do
+            {:ok, pid} ->
+              Loomkin.Teams.Agent.enqueue(pid, text, source: :user, priority: :normal)
+
+            :error ->
+              Logger.warning("[WorkspaceLive] Cannot enqueue — agent #{agent_name} not found")
+          end
+
+          {:noreply,
+           socket
+           |> assign(input_text: "")
+           |> put_flash(:info, "Message queued for #{agent_name}")
+           |> push_event("clear-input", %{})}
+
+        _ ->
+          {:noreply, socket}
+      end
+    end
+  end
+
+  def handle_event("inject_guidance", _params, socket) do
+    text = String.trim(socket.assigns.input_text || "")
+
+    if text == "" do
+      {:noreply, socket}
+    else
+      case socket.assigns.reply_target do
+        %{agent: agent_name, team_id: team_id} ->
+          case Loomkin.Teams.Manager.find_agent(team_id, agent_name) do
+            {:ok, pid} ->
+              Loomkin.Teams.Agent.inject_guidance(pid, text)
+
+            :error ->
+              Logger.warning(
+                "[WorkspaceLive] Cannot inject guidance — agent #{agent_name} not found"
+              )
+          end
+
+          guidance_event = %{
+            id: Ecto.UUID.generate(),
+            type: :message,
+            agent: "You",
+            content: "[Guidance to #{agent_name}]: #{text}",
+            timestamp: DateTime.utc_now(),
+            expanded: false,
+            metadata: %{from: "You", to: agent_name, action: :guidance}
+          }
+
+          events = cap_events(socket.assigns.activity_events ++ [guidance_event])
+
+          {:noreply,
+           socket
+           |> assign(
+             input_text: "",
+             activity_events: events,
+             last_user_message: %{text: text, to: agent_name}
+           )
+           |> push_event("clear-input", %{})}
+
+        _ ->
+          {:noreply, socket}
+      end
+    end
+  end
+
   # --- Component Info Messages ---
 
   def handle_info({:reply_to_agent, agent_name}, socket) do
@@ -751,6 +1038,179 @@ defmodule LoomkinWeb.WorkspaceLive do
       end)
 
     {:noreply, assign(socket, reply_target: %{agent: agent_name, team_id: team_id})}
+  end
+
+  # --- Signal Bus dispatch ---
+  # Converts Jido.Signal structs from the Bus into the tuple format
+  # that existing handle_info clauses expect. As more modules migrate to
+  # signals, eventually the tuple clauses will be removed.
+
+  def handle_info({:signal, %Jido.Signal{} = sig}, socket) do
+    if signal_for_workspace?(sig, socket) do
+      handle_info(sig, socket)
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info(%Jido.Signal{type: "agent.status"} = sig, socket) do
+    %{agent_name: agent_name, status: status} = sig.data
+    handle_info({:agent_status, agent_name, status}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "agent.role.changed"} = sig, socket) do
+    %{agent_name: name, old_role: old_role, new_role: new_role} = sig.data
+    handle_info({:role_changed, name, old_role, new_role}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "agent.escalation"} = sig, socket) do
+    %{agent_name: name, from_model: from, to_model: to} = sig.data
+    handle_info({:agent_escalation, name, from, to}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "agent.stream.start"} = sig, socket) do
+    %{agent_name: name, payload: payload} = sig.data
+    handle_info({:agent_stream_start, name, payload}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "agent.stream.delta"} = sig, socket) do
+    %{agent_name: name, payload: payload} = sig.data
+    handle_info({:agent_stream_delta, name, payload}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "agent.stream.end"} = sig, socket) do
+    %{agent_name: name, payload: payload} = sig.data
+    handle_info({:agent_stream_end, name, payload}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "agent.tool.executing"} = sig, socket) do
+    %{agent_name: name, payload: payload} = sig.data
+    handle_info({:tool_executing, name, payload}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "agent.tool.complete"} = sig, socket) do
+    %{agent_name: name, payload: payload} = sig.data
+    handle_info({:tool_complete, name, payload}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "agent.usage"} = sig, socket) do
+    %{agent_name: name, payload: payload} = sig.data
+    handle_info({:usage, name, payload}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "agent.error"} = sig, socket) do
+    %{agent_name: name, payload: payload} = sig.data
+    handle_info({:agent_error, name, payload}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "context.offloaded"} = sig, socket) do
+    %{agent_name: name, payload: payload} = sig.data
+    handle_info({:context_offloaded, name, payload}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "team.permission.request"} = sig, socket) do
+    %{team_id: tid, tool_name: tn, tool_path: tp, source: source} = sig.data
+    handle_info({:permission_request, tid, tn, tp, source}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "team.dissolved"} = sig, socket) do
+    %{team_id: tid} = sig.data
+    handle_info({:team_dissolved, tid}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "team.child.created"} = sig, socket) do
+    %{team_id: tid} = sig.data
+    handle_info({:child_team_created, tid}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "team.ask_user.question"} = sig, socket) do
+    handle_info({:ask_user_question, sig.data}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "team.ask_user.answered"} = sig, socket) do
+    %{question_id: qid, answer: answer} = sig.data
+    handle_info({:ask_user_answered, qid, answer}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "context.update"} = sig, socket) do
+    %{from: from} = sig.data
+    payload = sig.data
+    handle_info({:context_update, from, payload}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "context.keeper.created"} = sig, socket) do
+    handle_info({:keeper_created, sig.data}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "decision.node.added"} = sig, socket) do
+    handle_info({:node_added, sig.data}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "decision.pivot.created"} = sig, socket) do
+    handle_info({:pivot_created, sig.data}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "decision.logged"} = sig, socket) do
+    %{node_id: nid, agent_name: name} = sig.data
+    handle_info({:decision_logged, nid, name}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "channel.message"} = sig, socket) do
+    handle_info({:channel_message, sig.data}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "collaboration.vote.response"} = sig, socket) do
+    %{vote_id: vid, response: resp} = sig.data
+    handle_info({:vote_response, vid, resp}, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "system.auth." <> _} = sig, socket) do
+    tuple =
+      case sig.type do
+        "system.auth.connected" -> {:auth_connected, sig.data.provider}
+        "system.auth.disconnected" -> {:auth_disconnected, sig.data.provider}
+        "system.auth.refreshed" -> {:auth_refreshed, sig.data.provider}
+        "system.auth.refresh_failed" -> {:auth_refresh_failed, sig.data.provider, nil}
+        _ -> nil
+      end
+
+    if tuple, do: handle_info(tuple, socket), else: {:noreply, socket}
+  end
+
+  def handle_info(%Jido.Signal{type: "system.metrics.updated"}, socket) do
+    handle_info(:metrics_updated, socket)
+  end
+
+  def handle_info(%Jido.Signal{type: "session.message.new"} = sig, socket) do
+    %{session_id: sid} = sig.data
+
+    if sid == socket.assigns.session_id do
+      msg = Map.get(sig.data, :message, sig.data)
+      handle_info({:new_message, sid, msg}, socket)
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info(%Jido.Signal{type: "session.status.changed"} = sig, socket) do
+    %{session_id: sid, status: status} = sig.data
+
+    if sid == socket.assigns.session_id do
+      handle_info({:session_status, sid, status}, socket)
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info(%Jido.Signal{type: "agent.queue.updated"} = sig, socket) do
+    %{agent_name: agent_name, queue: queue} = sig.data
+    handle_info({:queue_updated, agent_name, queue}, socket)
+  end
+
+  # Catch-all for unhandled signal types — log and ignore
+  def handle_info(%Jido.Signal{type: type}, socket) do
+    Logger.debug("[WorkspaceLive] Unhandled signal type: #{type}")
+    {:noreply, socket}
   end
 
   # --- PubSub Info ---
@@ -1314,14 +1774,38 @@ defmodule LoomkinWeb.WorkspaceLive do
         socket.assigns.child_teams ++ [child_team_id]
       end
 
+    existing_card_names = Map.keys(socket.assigns.agent_cards)
+
     socket =
       socket
       |> subscribe_to_team(child_team_id)
       |> assign(:child_teams, child_teams)
       |> update(:roster_version, &((&1 || 0) + 1))
       |> refresh_roster()
+      |> sync_cards_with_roster()
 
-    {:noreply, socket}
+    # Generate "joined" comms events for newly-discovered agents
+    new_agents =
+      socket.assigns.cached_agents
+      |> Enum.map(& &1.name)
+      |> Enum.reject(&(&1 in existing_card_names))
+
+    comms_events =
+      Enum.reduce(new_agents, socket.assigns.comms_events, fn agent_name, comms ->
+        event = %{
+          id: Ecto.UUID.generate(),
+          type: :agent_spawn,
+          agent: agent_name,
+          content: "#{agent_name} joined",
+          timestamp: DateTime.utc_now(),
+          expanded: false,
+          metadata: %{}
+        }
+
+        comms ++ [event]
+      end)
+
+    {:noreply, assign(socket, comms_events: comms_events)}
   end
 
   def handle_info({:team_dissolved, team_id}, socket) do
@@ -1664,6 +2148,70 @@ defmodule LoomkinWeb.WorkspaceLive do
   end
 
   # Catch-all for unhandled PubSub messages (team events, etc.)
+  # --- Queue & Schedule PubSub ---
+
+  def handle_info({:queue_updated, agent_name, queue}, socket) do
+    agent_queues = Map.put(socket.assigns.agent_queues, agent_name, queue)
+    {:noreply, assign(socket, agent_queues: agent_queues)}
+  end
+
+  def handle_info({:schedule_updated, _team_id, scheduled}, socket) do
+    {:noreply, assign(socket, scheduled_messages: scheduled)}
+  end
+
+  def handle_info({:scheduled_delivered, _message_id, agent_name}, socket) do
+    {:noreply, put_flash(socket, :info, "Scheduled message delivered to #{agent_name}")}
+  end
+
+  def handle_info({:deliver_scheduled, message_id}, socket) do
+    case Enum.find(socket.assigns.scheduled_messages, &(&1.id == message_id)) do
+      nil ->
+        # Already cancelled
+        {:noreply, socket}
+
+      msg ->
+        team_id = msg.team_id
+        target = msg.target_agent
+        content = msg.content
+
+        delivery_result =
+          if target do
+            case Loomkin.Teams.Manager.find_agent(team_id, target) do
+              {:ok, pid} ->
+                Task.Supervisor.start_child(Loomkin.Teams.TaskSupervisor, fn ->
+                  Loomkin.Teams.Agent.send_message(pid, content)
+                end)
+
+                :ok
+
+              :error ->
+                Logger.warning(
+                  "[WorkspaceLive] Scheduled delivery failed — agent #{target} not found"
+                )
+
+                :error
+            end
+          else
+            Session.send_message(socket.assigns.session_id, content)
+            :ok
+          end
+
+        scheduled = Enum.reject(socket.assigns.scheduled_messages, &(&1.id == message_id))
+
+        flash =
+          case delivery_result do
+            :ok -> {:info, "Scheduled message sent to #{target || "Team"}"}
+            :error -> {:error, "Scheduled delivery failed — agent #{target} not found"}
+          end
+
+        {:noreply,
+         socket
+         |> assign(scheduled_messages: scheduled)
+         |> put_flash(elem(flash, 0), elem(flash, 1))}
+    end
+  end
+
+  # Catch-all
   def handle_info(msg, socket) do
     Logger.info("[WorkspaceLive] UNHANDLED message: #{inspect(msg, limit: 200)}")
     {:noreply, socket}
@@ -1953,12 +2501,17 @@ defmodule LoomkinWeb.WorkspaceLive do
         Map.get(assigns.agent_cards, assigns.focused_agent)
       end
 
+    agent_queues = assigns.agent_queues
+    scheduled_messages = assigns.scheduled_messages
+
     assigns =
       assigns
       |> assign(:sorted_cards, all_cards)
       |> assign(:concierge_card, concierge_card)
       |> assign(:worker_cards, worker_cards)
       |> assign(:focused_card, focused_card)
+      |> assign(:agent_queues, agent_queues)
+      |> assign(:scheduled_messages, scheduled_messages)
 
     ~H"""
     <%!-- Left: Agent Cards + Comms + Composer (flex-1) --%>
@@ -2002,6 +2555,8 @@ defmodule LoomkinWeb.WorkspaceLive do
               card={@focused_card}
               focused={true}
               team_id={@active_team_id}
+              queue_count={queue_count_for(@agent_queues, @focused_card.name)}
+              scheduled_count={scheduled_count_for(@scheduled_messages, @focused_card.name)}
             />
           </div>
         </div>
@@ -2012,28 +2567,56 @@ defmodule LoomkinWeb.WorkspaceLive do
             card={@concierge_card}
             focused={false}
             team_id={@active_team_id}
+            queue_count={queue_count_for(@agent_queues, @concierge_card.name)}
+            scheduled_count={scheduled_count_for(@scheduled_messages, @concierge_card.name)}
           />
         </div>
 
-        <%!-- Worker Agent Cards Grid --%>
+        <%!-- Team Agents Section --%>
         <div class="flex-shrink-0 p-3 pb-0">
+          <div class="flex items-center gap-2 mb-2">
+            <div class="flex items-center gap-1.5">
+              <svg class="w-3.5 h-3.5 text-muted" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M7 8a3 3 0 100-6 3 3 0 000 6zM14.5 9a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM1.615 16.428a1.224 1.224 0 01-.569-1.175 6.002 6.002 0 0111.908 0c.058.467-.172.92-.57 1.174A9.953 9.953 0 017 18a9.953 9.953 0 01-5.385-1.572zM14.5 16h-.106c.07-.297.088-.611.048-.933a7.47 7.47 0 00-1.588-3.755 4.502 4.502 0 015.874 2.636.818.818 0 01-.36.98A7.465 7.465 0 0114.5 16z" />
+              </svg>
+              <span class="text-xs font-medium text-muted uppercase tracking-wider">Team</span>
+            </div>
+            <span
+              class="text-[10px] tabular-nums px-1.5 py-0.5 rounded-full font-medium text-muted"
+              style="background: var(--surface-2);"
+            >
+              {length(@worker_cards)}
+            </span>
+            <div class="flex-1 h-px" style="background: var(--border-subtle);"></div>
+          </div>
+
           <div
             :if={@concierge_card == nil && @worker_cards == []}
-            class="text-center py-8"
+            class="rounded-lg border border-dashed py-6 text-center"
+            style="border-color: var(--border-subtle); background: var(--surface-1);"
           >
-            <div class="text-muted text-xs">Waiting for agents to spawn...</div>
+            <svg
+              class="w-5 h-5 mx-auto mb-1.5 text-muted opacity-40"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <path d="M7 8a3 3 0 100-6 3 3 0 000 6zM14.5 9a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM1.615 16.428a1.224 1.224 0 01-.569-1.175 6.002 6.002 0 0111.908 0c.058.467-.172.92-.57 1.174A9.953 9.953 0 017 18a9.953 9.953 0 01-5.385-1.572zM14.5 16h-.106c.07-.297.088-.611.048-.933a7.47 7.47 0 00-1.588-3.755 4.502 4.502 0 015.874 2.636.818.818 0 01-.36.98A7.465 7.465 0 0114.5 16z" />
+            </svg>
+            <div class="text-muted text-xs">Specialists will appear here as they spawn</div>
           </div>
-          <div
-            :if={@worker_cards != []}
-            class={["grid gap-3", card_grid_cols(length(@worker_cards))]}
-          >
-            <LoomkinWeb.AgentCardComponent.agent_card
-              :for={card <- @worker_cards}
-              card={card}
-              focused={false}
-              team_id={@active_team_id}
-            />
-          </div>
+
+          <%= if @worker_cards != [] do %>
+            <div class={["grid gap-3", card_grid_cols(length(@worker_cards))]}>
+              <LoomkinWeb.AgentCardComponent.agent_card
+                :for={card <- @worker_cards}
+                card={card}
+                focused={false}
+                team_id={@active_team_id}
+                queue_count={queue_count_for(@agent_queues, card.name)}
+                scheduled_count={scheduled_count_for(@scheduled_messages, card.name)}
+              />
+            </div>
+          <% end %>
         </div>
 
         <%!-- Comms Feed (scrollable, takes remaining space) --%>
@@ -2048,8 +2631,21 @@ defmodule LoomkinWeb.WorkspaceLive do
       <%!-- Budget bar --%>
       {render_budget_bar(assigns)}
 
+      <%!-- Last user message echo --%>
+      {render_last_message_strip(assigns)}
+
       <%!-- Sticky composer --%>
       {render_input_bar(assigns)}
+
+      <%!-- Queue drawer overlay --%>
+      <LoomkinWeb.MessageQueueComponent.queue_drawer
+        :if={@queue_drawer}
+        queue={Map.get(@agent_queues, @queue_drawer.agent, [])}
+        agent_name={@queue_drawer.agent}
+        team_id={@queue_drawer.team_id}
+        selected_ids={@queue_selected_ids}
+        editing_id={@queue_editing_id}
+      />
     </div>
 
     <%!-- Right: Context Inspector (w-80, collapsible) --%>
@@ -2133,6 +2729,38 @@ defmodule LoomkinWeb.WorkspaceLive do
   defp format_decimal_cost(n) when is_float(n), do: :erlang.float_to_binary(n, decimals: 2)
   defp format_decimal_cost(n) when is_integer(n), do: "#{n}.00"
   defp format_decimal_cost(_), do: "0.00"
+
+  defp render_last_message_strip(%{last_user_message: nil} = assigns) do
+    ~H""
+  end
+
+  defp render_last_message_strip(assigns) do
+    ~H"""
+    <div
+      class="flex-shrink-0 px-4 py-1.5 flex items-center gap-2 overflow-hidden"
+      style="border-top: 1px solid var(--border-subtle); background: var(--surface-1);"
+    >
+      <span class="text-[10px] font-semibold text-muted uppercase tracking-widest flex-shrink-0">
+        You
+      </span>
+      <span class="text-[10px] flex-shrink-0" style="color: var(--text-muted);">
+        &rarr;
+      </span>
+      <span
+        class="text-[10px] font-medium flex-shrink-0"
+        style="color: var(--brand);"
+      >
+        {@last_user_message.to}
+      </span>
+      <span
+        class="text-[11px] truncate flex-1 min-w-0"
+        style="color: var(--text-secondary);"
+      >
+        {@last_user_message.text}
+      </span>
+    </div>
+    """
+  end
 
   # --- Shared input bar (used by both modes) ---
 
@@ -2225,6 +2853,21 @@ defmodule LoomkinWeb.WorkspaceLive do
             </div>
           </div>
 
+          <%!-- Queue button --%>
+          <div class="relative flex-shrink-0">
+            <button
+              type="button"
+              phx-click="toggle_queue_from_composer"
+              class="flex items-center justify-center h-9 px-2 rounded-lg transition-all duration-200 press-down"
+              style="border: 1px solid var(--border-subtle); color: var(--text-muted); background: transparent;"
+              title="View message queue"
+            >
+              <svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zm0 10.5a.75.75 0 01.75-.75h7.5a.75.75 0 010 1.5h-7.5a.75.75 0 01-.75-.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10z" />
+              </svg>
+            </button>
+          </div>
+
           <%!-- Textarea --%>
           <div class="flex-1 relative">
             <textarea
@@ -2281,6 +2924,70 @@ defmodule LoomkinWeb.WorkspaceLive do
             <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
               <rect x="6" y="6" width="12" height="12" rx="2" />
             </svg>
+          </button>
+
+          <%!-- Schedule button --%>
+          <div :if={@status != :thinking} class="relative flex-shrink-0">
+            <button
+              type="button"
+              phx-click="toggle_scheduler"
+              class="flex items-center justify-center w-9 h-9 rounded-lg transition-all duration-200 press-down"
+              style={"border: 1px solid " <> if(@schedule_popover, do: "var(--border-brand)", else: "var(--border-subtle)") <> "; color: " <> if(@schedule_popover, do: "var(--text-brand)", else: "var(--text-muted)") <> "; background: transparent;"}
+              title="Schedule message"
+            >
+              <svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                <path
+                  fill-rule="evenodd"
+                  d="M10 18a8 8 0 100-16 8 8 0 000 16zm.75-13a.75.75 0 00-1.5 0v5c0 .414.336.75.75.75h4a.75.75 0 000-1.5h-3.25V5z"
+                  clip-rule="evenodd"
+                />
+              </svg>
+            </button>
+
+            <%!-- Schedule popover --%>
+            <LoomkinWeb.ScheduleMessageComponent.schedule_popover
+              :if={@schedule_popover}
+              target_agent={if(@reply_target, do: @reply_target.agent)}
+              content={@input_text}
+              delay_minutes={@schedule_delay_minutes}
+              scheduled_messages={@scheduled_messages}
+            />
+          </div>
+
+          <%!-- Enqueue button (add to queue without sending) --%>
+          <button
+            :if={@status != :thinking && @reply_target}
+            type="button"
+            phx-click="enqueue_message"
+            class="flex items-center justify-center w-9 h-9 rounded-lg transition-all duration-200 press-down"
+            style="border: 1px solid var(--border-subtle); color: var(--text-muted); background: transparent;"
+            title={"Add to #{@reply_target.agent}'s queue"}
+          >
+            <svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
+            </svg>
+          </button>
+
+          <%!-- Inject guidance button (when agent is working) --%>
+          <button
+            :if={
+              @status != :thinking && @reply_target &&
+                agent_is_working?(@agent_cards, @reply_target.agent)
+            }
+            type="button"
+            phx-click="inject_guidance"
+            class="flex items-center gap-1 h-9 px-2.5 rounded-lg transition-all duration-200 press-down text-[11px] font-medium"
+            style="border: 1px solid rgba(52, 211, 153, 0.3); color: #34d399; background: rgba(52, 211, 153, 0.08);"
+            title={"Guide #{@reply_target.agent} without pausing"}
+          >
+            <svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path
+                fill-rule="evenodd"
+                d="M9.69 18.933l.003.001C9.89 19.02 10 19 10 19s.11.02.308-.066l.002-.001.006-.003.018-.008a5.741 5.741 0 00.281-.14c.186-.096.446-.24.757-.433.62-.384 1.445-.966 2.274-1.765C15.302 14.988 17 12.493 17 9A7 7 0 103 9c0 3.492 1.698 5.988 3.355 7.584a13.731 13.731 0 002.274 1.765 11.307 11.307 0 00.757.433c.11.057.19.095.237.117l.025.012.006.003zm.28-12.182a1.25 1.25 0 10-1.94 1.577 1.25 1.25 0 001.94-1.577zM10 11a2 2 0 100-4 2 2 0 000 4z"
+                clip-rule="evenodd"
+              />
+            </svg>
+            Guide
           </button>
         </div>
 
@@ -2562,6 +3269,19 @@ defmodule LoomkinWeb.WorkspaceLive do
   # Subscribe to a team's PubSub topics, but only once per team.
   # Also synthesizes "joined" events for agents that already exist (race condition fix).
   # Returns the updated socket with the team tracked in :subscribed_teams.
+  # Check if a signal belongs to this workspace's team(s) or session.
+  # Session signals are filtered separately in their specific handlers.
+  # Signals without team_id are accepted (system-level signals).
+  defp signal_for_workspace?(sig, socket) do
+    signal_team_id =
+      get_in(sig.data, [:team_id]) ||
+        get_in(sig, [Access.key(:extensions, %{}), "loomkin", "team_id"])
+
+    subscribed_teams = socket.assigns[:subscribed_teams] || MapSet.new()
+
+    signal_team_id == nil or MapSet.member?(subscribed_teams, signal_team_id)
+  end
+
   defp subscribe_to_team(socket, team_id) do
     subscribed = socket.assigns[:subscribed_teams] || MapSet.new()
 
@@ -2569,13 +3289,22 @@ defmodule LoomkinWeb.WorkspaceLive do
       socket
     else
       Logger.info("[WorkspaceLive] subscribe_to_team(#{team_id}) self=#{inspect(self())}")
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{team_id}")
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{team_id}:tasks")
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{team_id}:context")
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{team_id}:decisions")
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "decision_graph:#{team_id}")
+
+      # Subscribe to Jido Signal Bus for typed signals (new path)
+      Loomkin.Signals.subscribe("agent.**")
+      Loomkin.Signals.subscribe("team.**")
+      Loomkin.Signals.subscribe("context.**")
+      Loomkin.Signals.subscribe("decision.**")
+      Loomkin.Signals.subscribe("channel.**")
+      Loomkin.Signals.subscribe("collaboration.**")
+      Loomkin.Signals.subscribe("system.**")
 
       socket = assign(socket, subscribed_teams: MapSet.put(subscribed, team_id))
+
+      # Replay recent decision signals to catch up on events missed before subscription.
+      # The bus delivers replayed signals as regular messages, triggering refresh_decision_graphs.
+      five_min_ago = System.os_time(:microsecond) - 5 * 60 * 1_000_000
+      Loomkin.Signals.replay("decision.**", five_min_ago)
 
       # Synthesize "joined" events for agents that were spawned before we subscribed
       existing_agents =
@@ -3273,9 +4002,9 @@ defmodule LoomkinWeb.WorkspaceLive do
   defp update_agent_card(socket, _, _), do: socket
 
   defp update_card_status(socket, agent_name, status) do
-    # Clear stale :last_thinking content when agent goes idle
+    # Clear stale :last_thinking content when agent goes idle or complete
     extra =
-      if status == :idle do
+      if status in [:idle, :complete] do
         card = get_in(socket.assigns, [:agent_cards, agent_name])
 
         if card && card.content_type == :last_thinking do
@@ -3607,8 +4336,18 @@ defmodule LoomkinWeb.WorkspaceLive do
     end
   end
 
-  defp short_id(id) do
-    String.slice(id, 0, 8)
+  defp session_page_title(session_id) do
+    case Loomkin.Session.Persistence.get_session(session_id) do
+      %{title: title} when is_binary(title) and title != "" ->
+        if Regex.match?(~r/^Session \d{4}-\d{2}-\d{2}/, title) do
+          "Loomkin - #{String.slice(session_id, 0, 8)}"
+        else
+          String.slice(title, 0, 60)
+        end
+
+      _ ->
+        "Loomkin - #{String.slice(session_id, 0, 8)}"
+    end
   end
 
   defp format_cost(cost) when is_number(cost) and cost > 0,
@@ -3689,16 +4428,25 @@ defmodule LoomkinWeb.WorkspaceLive do
         "Options: #{options_text}. " <>
         "Reply with ONLY your preferred option (exact text)."
 
-    # Subscribe to the team topic to collect agent votes
+    # Subscribe to vote signals
     vote_topic = "ask_user:vote:#{question_id}"
-    Phoenix.PubSub.subscribe(Loomkin.PubSub, vote_topic)
+    Loomkin.Signals.subscribe("collaboration.vote.*")
 
-    Phoenix.PubSub.broadcast(
-      Loomkin.PubSub,
-      "team:#{team_id}",
-      {:peer_message, "system", collective_prompt,
-       %{reply_topic: vote_topic, question_id: question_id, options: options}}
-    )
+    signal =
+      Loomkin.Signals.Collaboration.PeerMessage.new!(
+        %{from: "system", team_id: team_id},
+        subject: "vote:#{question_id}"
+      )
+
+    Loomkin.Signals.publish(%{
+      signal
+      | data:
+          Map.merge(signal.data, %{
+            message:
+              {:peer_message, "system", collective_prompt,
+               %{reply_topic: vote_topic, question_id: question_id, options: options}}
+          })
+    })
 
     # Collect votes in a background task and deliver the result
     Task.Supervisor.start_child(Loomkin.Teams.TaskSupervisor, fn ->
@@ -3715,7 +4463,6 @@ defmodule LoomkinWeb.WorkspaceLive do
         end
 
       send_ask_user_answer(question_id, "Collective: #{winner}")
-      Phoenix.PubSub.unsubscribe(Loomkin.PubSub, vote_topic)
     end)
   end
 
@@ -3956,6 +4703,23 @@ defmodule LoomkinWeb.WorkspaceLive do
       e ->
         Logger.warning("[WorkspaceLive] Failed to load channel bindings: #{Exception.message(e)}")
         []
+    end
+  end
+
+  # --- Queue/Schedule helpers ---
+
+  defp queue_count_for(agent_queues, agent_name) do
+    agent_queues |> Map.get(agent_name, []) |> length()
+  end
+
+  defp scheduled_count_for(scheduled_messages, agent_name) do
+    Enum.count(scheduled_messages, &(&1[:target_agent] == agent_name))
+  end
+
+  defp agent_is_working?(agent_cards, agent_name) do
+    case Map.get(agent_cards, agent_name) do
+      %{status: :working} -> true
+      _ -> false
     end
   end
 end

@@ -140,13 +140,10 @@ defmodule Loomkin.Auth.ProviderRegistryTest do
       map = ProviderRegistry.oauth_provider_map()
       assert is_map(map)
 
-      for entry <- ProviderRegistry.all(), entry.id != :anthropic do
+      for entry <- ProviderRegistry.all() do
         assert map[entry.base_prefix] == entry.oauth_prefix,
                "oauth_provider_map/0 mismatch for #{entry.id}"
       end
-
-      # Anthropic is intentionally filtered from OAuth maps
-      refute map["anthropic"]
     end
 
     test "keys and values are all strings" do
@@ -162,13 +159,11 @@ defmodule Loomkin.Auth.ProviderRegistryTest do
       set = ProviderRegistry.oauth_capable_providers()
       assert %MapSet{} = set
 
-      # Anthropic is intentionally excluded from OAuth-capable providers
-      for entry <- ProviderRegistry.all(), entry.id != :anthropic do
+      for entry <- ProviderRegistry.all() do
         assert MapSet.member?(set, entry.id)
       end
 
-      refute MapSet.member?(set, :anthropic)
-      assert MapSet.size(set) == length(ProviderRegistry.all()) - 1
+      assert MapSet.size(set) == length(ProviderRegistry.all())
     end
   end
 

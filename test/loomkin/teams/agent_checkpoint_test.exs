@@ -74,8 +74,8 @@ defmodule Loomkin.Teams.AgentCheckpointTest do
     test "loop_paused result sets status to :paused and stores paused_state" do
       %{pid: pid, team_id: team_id} = start_agent()
 
-      # Subscribe to team events to verify broadcast
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{team_id}")
+      # Subscribe to agent status signals
+      Loomkin.Signals.subscribe("agent.**")
 
       # Create a task from inside the GenServer so it owns the monitoring ref
       :sys.replace_state(pid, fn state ->
@@ -88,7 +88,7 @@ defmodule Loomkin.Teams.AgentCheckpointTest do
       end)
 
       # Wait for the status broadcast with a timeout
-      assert_receive {:agent_status, _, :paused}, 500
+      assert_receive {:signal, %Jido.Signal{type: "agent.status", data: %{status: :paused}}}, 500
       state = :sys.get_state(pid)
 
       assert state.status == :paused
@@ -205,12 +205,8 @@ defmodule Loomkin.Teams.AgentCheckpointTest do
       %{pid: pid, team_id: team_id} = start_agent()
       _task = simulate_active_loop(pid)
 
-      # Send a normal-priority message
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
-        {:context_update, "peer-1", %{info: "test"}}
-      )
+      # Send a normal-priority message directly
+      send(pid, {:context_update, "peer-1", %{info: "test"}})
 
       # Synchronize: get_state forces the GenServer to process all pending messages
       _ = :sys.get_state(pid)

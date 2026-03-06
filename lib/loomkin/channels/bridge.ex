@@ -1,9 +1,9 @@
 defmodule Loomkin.Channels.Bridge do
   @moduledoc """
-  Per-binding GenServer that bridges PubSub events to a channel adapter
+  Per-binding GenServer that bridges Signal events to a channel adapter
   and routes inbound messages from the channel to the team.
 
-  Each Bridge subscribes to team PubSub topics and forwards relevant
+  Each Bridge subscribes to signal topics and forwards relevant
   events to the adapter for delivery. It also handles inbound messages
   and ask_user callback routing.
   """
@@ -13,8 +13,6 @@ defmodule Loomkin.Channels.Bridge do
   require Logger
 
   alias Loomkin.Channels.Severity
-
-  @pubsub Loomkin.PubSub
 
   # Rate limit: max messages per window
   @rate_limit_max 15
@@ -56,7 +54,7 @@ defmodule Loomkin.Channels.Bridge do
     end
   end
 
-  @doc "Subscribe a running bridge to a session's PubSub topic."
+  @doc "Subscribe a running bridge to a session's signal topic."
   def subscribe_session(channel, channel_id, session_id) do
     case lookup(channel, channel_id) do
       {:ok, pid} -> GenServer.cast(pid, {:subscribe_session, session_id})
@@ -76,27 +74,28 @@ defmodule Loomkin.Channels.Bridge do
 
   @impl true
   def init({binding, adapter}) do
-    team_id = binding.team_id
+    _team_id = binding.team_id
 
-    Phoenix.PubSub.subscribe(@pubsub, "team:#{team_id}")
-    Phoenix.PubSub.subscribe(@pubsub, "team:#{team_id}:tasks")
-    Phoenix.PubSub.subscribe(@pubsub, "team:#{team_id}:context")
-    Phoenix.PubSub.subscribe(@pubsub, "telemetry:team:#{team_id}")
+    # Subscribe to all relevant signal paths
+    Loomkin.Signals.subscribe("team.**")
+    Loomkin.Signals.subscribe("agent.**")
+    Loomkin.Signals.subscribe("collaboration.**")
+    Loomkin.Signals.subscribe("context.**")
+    Loomkin.Signals.subscribe("session.**")
+    Loomkin.Signals.subscribe("channel.**")
 
-    # Subscribe to session topic if configured in binding
     config = Map.get(binding, :config, %{}) || %{}
     session_id = Map.get(config, "session_id") || Map.get(config, :session_id)
 
     subscribed_sessions =
       if session_id do
-        Phoenix.PubSub.subscribe(@pubsub, "session:#{session_id}")
         MapSet.new([session_id])
       else
         MapSet.new()
       end
 
     Logger.info(
-      "[Bridge] Started for #{binding.channel}:#{binding.channel_id} -> team:#{team_id}"
+      "[Bridge] Started for #{binding.channel}:#{binding.channel_id} -> team:#{binding.team_id}"
     )
 
     {:ok,
@@ -107,13 +106,21 @@ defmodule Loomkin.Channels.Bridge do
      }}
   end
 
-  # --- PubSub event handlers (severity-gated) ---
+  # --- Signal event handlers (severity-gated) ---
 
   @impl true
-  def handle_info({:ask_user_question, _payload} = msg, state) do
+  def handle_info({:signal, %Jido.Signal{} = sig}, state) do
+    if signal_for_bridge?(sig, state) do
+      handle_info(sig, state)
+    else
+      {:noreply, state}
+    end
+  end
+
+  def handle_info(%Jido.Signal{type: "team.ask_user.question", data: data} = msg, state) do
     if should_notify?(msg, state) do
       %{question_id: question_id, agent_name: agent_name, question: question, options: options} =
-        elem(msg, 1)
+        data
 
       case rate_limited_send(state, fn ->
              state.adapter.send_question(
@@ -136,10 +143,10 @@ defmodule Loomkin.Channels.Bridge do
     end
   end
 
-  def handle_info({:agent_error, payload} = msg, state) do
+  def handle_info(%Jido.Signal{type: "agent.error", data: data} = msg, state) do
     if should_notify?(msg, state) do
-      agent_name = Map.get(payload, :agent_name, "unknown")
-      error = Map.get(payload, :error, "unknown error")
+      agent_name = Map.get(data, :agent_name, "unknown")
+      error = Map.get(data, :error, "unknown error")
       team_id = state.binding.team_id
 
       send_if_allowed(state, fn ->
@@ -154,7 +161,7 @@ defmodule Loomkin.Channels.Bridge do
     end
   end
 
-  def handle_info(:team_dissolved = msg, state) do
+  def handle_info(%Jido.Signal{type: "team.dissolved"} = msg, state) do
     if should_notify?(msg, state) do
       team_id = state.binding.team_id
 
@@ -170,27 +177,26 @@ defmodule Loomkin.Channels.Bridge do
     end
   end
 
-  def handle_info({:new_message, payload} = msg, state) do
+  def handle_info(%Jido.Signal{type: "session.message.new", data: data} = msg, state) do
     if should_notify?(msg, state) do
-      role = Map.get(payload, :role)
-      content = Map.get(payload, :content)
-      agent_name = Map.get(payload, :agent_name, "agent")
+      role = Map.get(data, :role)
+      content = Map.get(data, :content)
+      agent_name = Map.get(data, :agent_name, "agent")
 
       if role == :assistant && content && content != "" do
         team_id = state.binding.team_id
         channel = state.binding.channel
 
-        Phoenix.PubSub.broadcast(
-          @pubsub,
-          "team:#{team_id}",
-          {:channel_message,
-           %{
-             direction: :outbound,
-             channel: channel,
-             agent_name: agent_name,
-             text: String.slice(content, 0, 200)
-           }}
-        )
+        signal =
+          Loomkin.Signals.Channel.Message.new!(%{
+            direction: :outbound,
+            channel: channel,
+            team_id: team_id,
+            agent_name: agent_name,
+            text: String.slice(content, 0, 200)
+          })
+
+        Loomkin.Signals.publish(signal)
 
         send_if_allowed(state, fn ->
           formatted = state.adapter.format_agent_message(agent_name, content)
@@ -204,10 +210,18 @@ defmodule Loomkin.Channels.Bridge do
     end
   end
 
-  def handle_info({:collab_event, _payload} = msg, state) do
-    if should_notify?(msg, state) do
-      payload = elem(msg, 1)
+  def handle_info(
+        %Jido.Signal{
+          type: "collaboration.peer.message",
+          data: %{message: {:collab_event, payload}}
+        },
+        state
+      ) do
+    # Classify collab events by their inner type, not the outer signal wrapper
+    severity = classify_collab_event(payload)
+    levels = notify_levels(state)
 
+    if Severity.notify?(severity, levels) do
       send_if_allowed(state, fn ->
         state.adapter.send_activity(state.binding, payload)
       end)
@@ -216,11 +230,13 @@ defmodule Loomkin.Channels.Bridge do
     end
   end
 
-  def handle_info(
-        {:permission_request, team_id, tool_name, tool_path, {:agent, _tid, agent_name}} = msg,
-        state
-      ) do
+  def handle_info(%Jido.Signal{type: "team.permission.request", data: data} = msg, state) do
     if should_notify?(msg, state) do
+      team_id = Map.get(data, :team_id, state.binding.team_id)
+      tool_name = data.tool_name
+      tool_path = data.tool_path
+      agent_name = Map.get(data, :agent_name, "unknown")
+
       request_id =
         Loomkin.Channels.PermissionRegistry.register_request(
           team_id,
@@ -242,13 +258,13 @@ defmodule Loomkin.Channels.Bridge do
     end
   end
 
-  # --- Telemetry event handlers ---
+  # --- Telemetry signal handlers ---
 
-  def handle_info({:team_budget_warning, payload} = msg, state) do
+  def handle_info(%Jido.Signal{type: "team.budget.warning", data: data} = msg, state) do
     if should_notify?(msg, state) do
-      spent = Map.get(payload, :spent, 0)
-      limit = Map.get(payload, :limit, 0)
-      threshold = Map.get(payload, :threshold, 0)
+      spent = Map.get(data, :spent, 0)
+      limit = Map.get(data, :limit, 0)
+      threshold = Map.get(data, :threshold, 0)
 
       team_id = state.binding.team_id
 
@@ -264,11 +280,11 @@ defmodule Loomkin.Channels.Bridge do
     end
   end
 
-  def handle_info({:team_escalation, payload} = msg, state) do
+  def handle_info(%Jido.Signal{type: "agent.escalation", data: data} = msg, state) do
     if should_notify?(msg, state) do
-      agent_name = Map.get(payload, :agent_name, "unknown")
-      from_model = Map.get(payload, :from_model, "?")
-      to_model = Map.get(payload, :to_model, "?")
+      agent_name = Map.get(data, :agent_name, "unknown")
+      from_model = Map.get(data, :from_model, "?")
+      to_model = Map.get(data, :to_model, "?")
 
       text = "[#{agent_name}] Escalated: #{from_model} -> #{to_model}"
 
@@ -280,15 +296,14 @@ defmodule Loomkin.Channels.Bridge do
     end
   end
 
-  def handle_info({:team_llm_stop, _payload} = msg, state) do
+  def handle_info(%Jido.Signal{type: "team.llm.stop", data: data} = msg, state) do
     if should_notify?(msg, state) do
-      payload = elem(msg, 1)
-      agent_name = Map.get(payload, :agent_name, "unknown")
-      model = Map.get(payload, :model, "?")
-      cost = Float.round((Map.get(payload, :cost, 0) || 0) / 1, 4)
+      agent_name = Map.get(data, :agent_name, "unknown")
+      model = Map.get(data, :model, "?")
+      cost = Float.round((Map.get(data, :cost, 0) || 0) / 1, 4)
 
       tokens =
-        (Map.get(payload, :input_tokens, 0) || 0) + (Map.get(payload, :output_tokens, 0) || 0)
+        (Map.get(data, :input_tokens, 0) || 0) + (Map.get(data, :output_tokens, 0) || 0)
 
       text = "[#{agent_name}] LLM call: #{model} ($#{cost}, #{tokens} tokens)"
 
@@ -300,10 +315,14 @@ defmodule Loomkin.Channels.Bridge do
     end
   end
 
-  # --- Session event handlers ---
+  # --- Session signal handlers ---
 
-  def handle_info({:permission_request, session_id, tool_name, tool_path, :session} = msg, state) do
+  def handle_info(%Jido.Signal{type: "session.permission.request", data: data} = msg, state) do
     if should_notify?(msg, state) do
+      session_id = Map.get(data, :session_id, "unknown")
+      tool_name = Map.get(data, :tool_name, "unknown")
+      tool_path = Map.get(data, :tool_path, "unknown")
+
       text =
         "Session permission request: tool #{tool_name} on #{tool_path}\n" <>
           "Session: `#{session_id}`\n" <>
@@ -317,25 +336,10 @@ defmodule Loomkin.Channels.Bridge do
     end
   end
 
-  def handle_info({:new_message, _session_id, msg} = event, state) do
-    if should_notify?(event, state) do
-      content = if is_map(msg), do: Map.get(msg, :content, inspect(msg)), else: inspect(msg)
-      role = if is_map(msg), do: Map.get(msg, :role), else: nil
-
-      if role == :assistant && content && content != "" do
-        send_if_allowed(state, fn ->
-          state.adapter.send_text(state.binding, "[session] #{String.slice(content, 0, 500)}", [])
-        end)
-      else
-        {:noreply, state}
-      end
-    else
-      {:noreply, state}
-    end
-  end
-
-  def handle_info({:session_cancelled, session_id} = msg, state) do
+  def handle_info(%Jido.Signal{type: "session.cancelled", data: data} = msg, state) do
     if should_notify?(msg, state) do
+      session_id = Map.get(data, :session_id, "unknown")
+
       send_if_allowed(state, fn ->
         state.adapter.send_text(state.binding, "Session `#{session_id}` cancelled.", [])
       end)
@@ -344,8 +348,10 @@ defmodule Loomkin.Channels.Bridge do
     end
   end
 
-  def handle_info({:llm_error, _session_id, error} = msg, state) do
+  def handle_info(%Jido.Signal{type: "session.llm.error", data: data} = msg, state) do
     if should_notify?(msg, state) do
+      error = Map.get(data, :error, "unknown")
+
       send_if_allowed(state, fn ->
         state.adapter.send_text(state.binding, "LLM Error: #{error}", [])
       end)
@@ -354,20 +360,23 @@ defmodule Loomkin.Channels.Bridge do
     end
   end
 
-  def handle_info({:session_status, _session_id, status} = msg, %{binding: binding} = state) do
+  def handle_info(%Jido.Signal{type: "session.status.changed", data: data} = msg, state) do
     if should_notify?(msg, state) do
-      session_id = elem(msg, 1)
+      session_id = Map.get(data, :session_id, "unknown")
+      status = Map.get(data, :status, "unknown")
 
       send_if_allowed(state, fn ->
-        state.adapter.send_text(binding, "Session `#{session_id}` status: #{status}", [])
+        state.adapter.send_text(state.binding, "Session `#{session_id}` status: #{status}", [])
       end)
     else
       {:noreply, state}
     end
   end
 
-  def handle_info({:team_available, _session_id, team_id} = msg, state) do
+  def handle_info(%Jido.Signal{type: "session.team.available", data: data} = msg, state) do
     if should_notify?(msg, state) do
+      team_id = Map.get(data, :team_id, "unknown")
+
       send_if_allowed(state, fn ->
         state.adapter.send_text(state.binding, "Team `#{team_id}` is now available.", [])
       end)
@@ -376,8 +385,10 @@ defmodule Loomkin.Channels.Bridge do
     end
   end
 
-  def handle_info({:child_team_available, _session_id, child_team_id} = msg, state) do
+  def handle_info(%Jido.Signal{type: "session.child_team.available", data: data} = msg, state) do
     if should_notify?(msg, state) do
+      child_team_id = Map.get(data, :child_team_id, "unknown")
+
       send_if_allowed(state, fn ->
         state.adapter.send_text(state.binding, "Child team `#{child_team_id}` spawned.", [])
       end)
@@ -386,7 +397,7 @@ defmodule Loomkin.Channels.Bridge do
     end
   end
 
-  # Catch-all for unhandled PubSub events
+  # Catch-all for unhandled signals and other messages
   def handle_info(_msg, state) do
     {:noreply, state}
   end
@@ -415,8 +426,7 @@ defmodule Loomkin.Channels.Bridge do
     if MapSet.member?(state.subscribed_sessions, session_id) do
       {:noreply, state}
     else
-      Phoenix.PubSub.subscribe(@pubsub, "session:#{session_id}")
-      Logger.info("[Bridge] Subscribed to session:#{session_id}")
+      Logger.info("[Bridge] Tracking session:#{session_id}")
 
       {:noreply,
        %{state | subscribed_sessions: MapSet.put(state.subscribed_sessions, session_id)}}
@@ -429,19 +439,16 @@ defmodule Loomkin.Channels.Bridge do
     team_id = state.binding.team_id
     channel = state.binding.channel
 
-    # Broadcast channel activity for the UI activity feed
-    Phoenix.PubSub.broadcast(
-      @pubsub,
-      "team:#{team_id}",
-      {:channel_message,
-       %{
-         direction: :inbound,
-         channel: channel,
-         text: text
-       }}
-    )
+    signal =
+      Loomkin.Signals.Channel.Message.new!(%{
+        direction: :inbound,
+        channel: channel,
+        team_id: team_id,
+        text: text
+      })
 
-    # Route to the team lead agent if one exists
+    Loomkin.Signals.publish(signal)
+
     case Registry.lookup(Loomkin.Teams.AgentRegistry, {team_id, "lead"}) do
       [{pid, _}] ->
         Loomkin.Teams.Agent.send_message(pid, text)
@@ -460,7 +467,6 @@ defmodule Loomkin.Channels.Bridge do
         {:noreply, state}
 
       {_meta, remaining} ->
-        # Route answer back to the waiting agent via Registry
         case Registry.lookup(Loomkin.Teams.AgentRegistry, {:ask_user, question_id}) do
           [{pid, _}] ->
             send(pid, {:ask_user_answer, question_id, answer})
@@ -505,6 +511,11 @@ defmodule Loomkin.Channels.Bridge do
     end
   end
 
+  @actionable_collab_types [:conflict_detected, :consensus_reached, :task_completed]
+
+  defp classify_collab_event(%{type: type}) when type in @actionable_collab_types, do: :action
+  defp classify_collab_event(_), do: :info
+
   defp should_notify?(event, state) do
     severity = Severity.classify(event)
     levels = notify_levels(state)
@@ -518,6 +529,30 @@ defmodule Loomkin.Channels.Bridge do
       nil -> Severity.default_levels()
       levels when is_list(levels) -> levels
       _ -> Severity.default_levels()
+    end
+  end
+
+  # Check if signal belongs to this bridge's team or tracked sessions.
+  # Session signals must match a subscribed session; team signals must match the binding's team.
+  defp signal_for_bridge?(sig, state) do
+    signal_team_id =
+      get_in(sig.data, [:team_id]) ||
+        get_in(sig, [Access.key(:extensions, %{}), "loomkin", "team_id"])
+
+    signal_session_id = get_in(sig.data, [:session_id])
+
+    cond do
+      # Session-scoped signals: must match a subscribed session
+      signal_session_id != nil ->
+        MapSet.member?(state.subscribed_sessions, signal_session_id)
+
+      # Team-scoped signals: must match the binding's team
+      signal_team_id != nil ->
+        signal_team_id == state.binding.team_id
+
+      # Unscoped signals (system-level): accept
+      true ->
+        true
     end
   end
 

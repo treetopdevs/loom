@@ -7,7 +7,7 @@ defmodule Loomkin.LLMTest do
     test "returns a map of base provider to oauth provider" do
       map = LLM.oauth_providers()
       assert is_map(map)
-      refute map["anthropic"], "anthropic is intentionally filtered from OAuth map"
+      assert map["anthropic"] == "anthropic_oauth"
       assert map["google"] == "google_oauth"
       assert map["openai"] == "openai_oauth"
     end

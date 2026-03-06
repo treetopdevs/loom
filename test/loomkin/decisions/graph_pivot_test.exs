@@ -123,17 +123,18 @@ defmodule Loomkin.Decisions.GraphPivotTest do
     end
 
     test "broadcasts pivot_created event" do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "decision_graph")
+      Loomkin.Signals.subscribe("decision.**")
 
       {:ok, old} = Graph.add_node(node_attrs(%{title: "Old"}))
       {:ok, result} = Graph.create_pivot_chain(old.id, "Obs", "New")
 
       # Drain node_added messages (4 nodes: old + observation + revisit + decision)
       for _ <- 1..3 do
-        assert_receive {:node_added, _}
+        assert_receive {:signal, %Jido.Signal{type: "decision.node.added"}}
       end
 
-      assert_receive {:pivot_created, ^result}
+      assert_receive {:signal,
+                      %Jido.Signal{type: "decision.pivot.created", data: %{result: ^result}}}
     end
 
     test "is atomic - all or nothing" do

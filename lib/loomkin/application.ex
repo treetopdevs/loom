@@ -25,6 +25,10 @@ defmodule Loomkin.Application do
         # PubSub for session event broadcasting (always started — needed even without web server)
         {Phoenix.PubSub, name: Loomkin.PubSub},
 
+        # Jido Signal Bus for typed event routing
+        {Jido.Signal.Bus,
+         name: Loomkin.SignalBus, journal_adapter: Jido.Signal.Journal.Adapters.ETS},
+
         # Telemetry metrics aggregation
         Loomkin.Telemetry.Metrics,
 

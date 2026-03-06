@@ -40,7 +40,7 @@ defmodule Loomkin.RepoIntel.Watcher do
 
   @impl true
   def init(opts) do
-    Phoenix.PubSub.subscribe(Loomkin.PubSub, "loom:system")
+    Loomkin.Signals.subscribe("system.config.loaded")
 
     state = %{
       project_path: nil,
@@ -112,18 +112,17 @@ defmodule Loomkin.RepoIntel.Watcher do
     if MapSet.size(changes) > 0 do
       process_changes(changes, state.project_path)
 
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "repo:updates",
-        {:repo_updated, MapSet.to_list(changes)}
-      )
+      signal = Loomkin.Signals.System.RepoUpdated.new!(%{}, subject: state.project_path)
+      Loomkin.Signals.publish(%{signal | data: %{files: MapSet.to_list(changes)}})
     end
 
     {:noreply, %{state | pending_changes: MapSet.new(), debounce_ref: nil}}
   end
 
   @impl true
-  def handle_info({:config_loaded, config}, state) do
+  def handle_info({:signal, %Jido.Signal{} = sig}, state), do: handle_info(sig, state)
+
+  def handle_info(%Jido.Signal{type: "system.config.loaded", data: config}, state) do
     watch_enabled = get_in(config, [:repo, :watch_enabled])
 
     if watch_enabled != false do

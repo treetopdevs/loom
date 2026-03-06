@@ -3,7 +3,6 @@ defmodule Loomkin.Decisions.BroadcasterTest do
 
   alias Loomkin.Decisions.{Broadcaster, Graph}
 
-  @pubsub Loomkin.PubSub
   @team_id "test-team-broadcaster"
 
   defp node_attrs(overrides) do
@@ -18,13 +17,13 @@ defmodule Loomkin.Decisions.BroadcasterTest do
     :ok
   end
 
-  describe "add_node broadcasts {:node_added, node}" do
-    test "Graph.add_node broadcasts to decision_graph topic" do
-      Phoenix.PubSub.subscribe(@pubsub, "decision_graph")
+  describe "add_node publishes signal" do
+    test "Graph.add_node publishes decision.node.added signal" do
+      Loomkin.Signals.subscribe("decision.**")
 
-      {:ok, node} = Graph.add_node(node_attrs(%{title: "Broadcast test"}))
+      {:ok, _node} = Graph.add_node(node_attrs(%{title: "Broadcast test"}))
 
-      assert_receive {:node_added, ^node}, 500
+      assert_receive {:signal, %Jido.Signal{type: "decision.node.added"}}, 500
     end
   end
 
@@ -32,7 +31,6 @@ defmodule Loomkin.Decisions.BroadcasterTest do
     setup [:start_broadcaster]
 
     test "notifies agent when observation links to active goal" do
-      # Create graph: goal -enables-> action
       {:ok, goal} =
         Graph.add_node(
           node_attrs(%{
@@ -48,10 +46,9 @@ defmodule Loomkin.Decisions.BroadcasterTest do
 
       {:ok, _} = Graph.add_edge(goal.id, action.id, :enables)
 
-      # Subscribe to the agent's topic to capture notifications
-      Phoenix.PubSub.subscribe(@pubsub, "team:#{@team_id}:agent:coder-1")
+      # Subscribe to signals to capture agent notifications
+      Loomkin.Signals.subscribe("collaboration.**")
 
-      # Create observation and link it: action -enables-> obs
       {:ok, obs} =
         Graph.add_node(
           node_attrs(%{
@@ -63,10 +60,18 @@ defmodule Loomkin.Decisions.BroadcasterTest do
 
       {:ok, _} = Graph.add_edge(action.id, obs.id, :enables)
 
-      # Re-broadcast now that edge exists (original broadcast from add_node fires before edge)
-      Phoenix.PubSub.broadcast(@pubsub, "decision_graph", {:node_added, obs})
+      # Re-publish signal to trigger broadcaster (original fires before edge exists)
+      broadcaster_pid = find_broadcaster()
+      signal = Loomkin.Signals.Decision.NodeAdded.new!(%{team_id: @team_id})
+      send(broadcaster_pid, {:signal, %{signal | data: Map.put(signal.data, :node, obs)}})
 
-      assert_receive {:discovery_relevant, payload}, 1000
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:discovery_relevant, payload}}
+                      }},
+                     1000
+
       assert payload.observation_id == obs.id
       assert payload.observation_title == "New discovery"
       assert payload.goal_id == goal.id
@@ -90,7 +95,7 @@ defmodule Loomkin.Decisions.BroadcasterTest do
 
       {:ok, _} = Graph.add_edge(goal.id, action.id, :leads_to)
 
-      Phoenix.PubSub.subscribe(@pubsub, "team:#{@team_id}:agent:coder-1")
+      Loomkin.Signals.subscribe("collaboration.**")
 
       {:ok, outcome} =
         Graph.add_node(
@@ -102,9 +107,18 @@ defmodule Loomkin.Decisions.BroadcasterTest do
         )
 
       {:ok, _} = Graph.add_edge(action.id, outcome.id, :leads_to)
-      Phoenix.PubSub.broadcast(@pubsub, "decision_graph", {:node_added, outcome})
 
-      assert_receive {:discovery_relevant, payload}, 1000
+      broadcaster_pid = find_broadcaster()
+      signal = Loomkin.Signals.Decision.NodeAdded.new!(%{team_id: @team_id})
+      send(broadcaster_pid, {:signal, %{signal | data: Map.put(signal.data, :node, outcome)}})
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:discovery_relevant, payload}}
+                      }},
+                     1000
+
       assert payload.observation_id == outcome.id
     end
 
@@ -119,15 +133,18 @@ defmodule Loomkin.Decisions.BroadcasterTest do
           })
         )
 
-      Phoenix.PubSub.subscribe(@pubsub, "team:#{@team_id}:agent:coder-1")
+      Loomkin.Signals.subscribe("collaboration.**")
 
       {:ok, action} =
         Graph.add_node(node_attrs(%{node_type: :action, title: "Some action"}))
 
       {:ok, _} = Graph.add_edge(goal.id, action.id, :enables)
-      Phoenix.PubSub.broadcast(@pubsub, "decision_graph", {:node_added, action})
 
-      refute_receive {:discovery_relevant, _}, 200
+      broadcaster_pid = find_broadcaster()
+      signal = Loomkin.Signals.Decision.NodeAdded.new!(%{team_id: @team_id})
+      send(broadcaster_pid, {:signal, %{signal | data: Map.put(signal.data, :node, action)}})
+
+      refute_receive {:signal, %Jido.Signal{data: %{message: {:discovery_relevant, _}}}}, 200
     end
 
     test "ignores nodes from other teams" do
@@ -143,7 +160,7 @@ defmodule Loomkin.Decisions.BroadcasterTest do
           })
         )
 
-      Phoenix.PubSub.subscribe(@pubsub, "team:#{@team_id}:agent:coder-1")
+      Loomkin.Signals.subscribe("collaboration.**")
 
       {:ok, obs} =
         Graph.add_node(%{
@@ -153,9 +170,12 @@ defmodule Loomkin.Decisions.BroadcasterTest do
         })
 
       {:ok, _} = Graph.add_edge(goal.id, obs.id, :enables)
-      Phoenix.PubSub.broadcast(@pubsub, "decision_graph", {:node_added, obs})
 
-      refute_receive {:discovery_relevant, _}, 200
+      broadcaster_pid = find_broadcaster()
+      signal = Loomkin.Signals.Decision.NodeAdded.new!(%{team_id: other_team})
+      send(broadcaster_pid, {:signal, %{signal | data: Map.put(signal.data, :node, obs)}})
+
+      refute_receive {:signal, %Jido.Signal{data: %{message: {:discovery_relevant, _}}}}, 200
     end
 
     test "includes keeper_id in payload when available" do
@@ -169,7 +189,7 @@ defmodule Loomkin.Decisions.BroadcasterTest do
           })
         )
 
-      Phoenix.PubSub.subscribe(@pubsub, "team:#{@team_id}:agent:coder-1")
+      Loomkin.Signals.subscribe("collaboration.**")
 
       keeper_id = Ecto.UUID.generate()
 
@@ -184,9 +204,18 @@ defmodule Loomkin.Decisions.BroadcasterTest do
         )
 
       {:ok, _} = Graph.add_edge(goal.id, obs.id, :enables)
-      Phoenix.PubSub.broadcast(@pubsub, "decision_graph", {:node_added, obs})
 
-      assert_receive {:discovery_relevant, payload}, 1000
+      broadcaster_pid = find_broadcaster()
+      signal = Loomkin.Signals.Decision.NodeAdded.new!(%{team_id: @team_id})
+      send(broadcaster_pid, {:signal, %{signal | data: Map.put(signal.data, :node, obs)}})
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:discovery_relevant, payload}}
+                      }},
+                     1000
+
       assert payload.keeper_id == keeper_id
     end
 
@@ -205,7 +234,10 @@ defmodule Loomkin.Decisions.BroadcasterTest do
         Graph.add_node(node_attrs(%{node_type: :observation, title: "Discovery"}))
 
       {:ok, _} = Graph.add_edge(goal.id, obs.id, :enables)
-      Phoenix.PubSub.broadcast(@pubsub, "decision_graph", {:node_added, obs})
+
+      broadcaster_pid = find_broadcaster()
+      signal = Loomkin.Signals.Decision.NodeAdded.new!(%{team_id: @team_id})
+      send(broadcaster_pid, {:signal, %{signal | data: Map.put(signal.data, :node, obs)}})
 
       # Should not crash; give it time to process
       Process.sleep(100)
@@ -222,15 +254,18 @@ defmodule Loomkin.Decisions.BroadcasterTest do
           })
         )
 
-      Phoenix.PubSub.subscribe(@pubsub, "team:#{@team_id}:agent:coder-1")
+      Loomkin.Signals.subscribe("collaboration.**")
 
       {:ok, obs} =
         Graph.add_node(node_attrs(%{node_type: :observation, title: "Finding"}))
 
       {:ok, _} = Graph.add_edge(goal.id, obs.id, :enables)
-      Phoenix.PubSub.broadcast(@pubsub, "decision_graph", {:node_added, obs})
 
-      refute_receive {:discovery_relevant, _}, 200
+      broadcaster_pid = find_broadcaster()
+      signal = Loomkin.Signals.Decision.NodeAdded.new!(%{team_id: @team_id})
+      send(broadcaster_pid, {:signal, %{signal | data: Map.put(signal.data, :node, obs)}})
+
+      refute_receive {:signal, %Jido.Signal{data: %{message: {:discovery_relevant, _}}}}, 200
     end
   end
 
@@ -248,25 +283,33 @@ defmodule Loomkin.Decisions.BroadcasterTest do
           })
         )
 
-      Phoenix.PubSub.subscribe(@pubsub, "team:#{@team_id}:agent:coder-1")
+      Loomkin.Signals.subscribe("collaboration.**")
 
       # First observation
       {:ok, obs1} =
         Graph.add_node(node_attrs(%{node_type: :observation, title: "First finding"}))
 
       {:ok, _} = Graph.add_edge(goal.id, obs1.id, :enables)
-      Phoenix.PubSub.broadcast(@pubsub, "decision_graph", {:node_added, obs1})
 
-      assert_receive {:discovery_relevant, _}, 1000
+      broadcaster_pid = find_broadcaster()
+      signal = Loomkin.Signals.Decision.NodeAdded.new!(%{team_id: @team_id})
+      send(broadcaster_pid, {:signal, %{signal | data: Map.put(signal.data, :node, obs1)}})
+
+      assert_receive {:signal, %Jido.Signal{data: %{message: {:discovery_relevant, _}}}}, 1000
 
       # Second observation immediately after (should be debounced)
       {:ok, obs2} =
         Graph.add_node(node_attrs(%{node_type: :observation, title: "Second finding"}))
 
       {:ok, _} = Graph.add_edge(goal.id, obs2.id, :enables)
-      Phoenix.PubSub.broadcast(@pubsub, "decision_graph", {:node_added, obs2})
+      send(broadcaster_pid, {:signal, %{signal | data: Map.put(signal.data, :node, obs2)}})
 
-      refute_receive {:discovery_relevant, _}, 200
+      refute_receive {:signal, %Jido.Signal{data: %{message: {:discovery_relevant, _}}}}, 200
     end
+  end
+
+  defp find_broadcaster do
+    [{pid, _}] = Registry.lookup(Loomkin.Teams.AgentRegistry, {:broadcaster, @team_id})
+    pid
   end
 end

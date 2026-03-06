@@ -100,7 +100,8 @@ defmodule Loomkin.Teams.Cluster do
   @spec handle_node_join(node()) :: :ok
   def handle_node_join(node) do
     Logger.info("[Cluster] Node joined: #{node}")
-    Phoenix.PubSub.broadcast(Loomkin.PubSub, "cluster:events", {:node_joined, node})
+    signal = Loomkin.Signals.System.NodeJoined.new!(%{node: node})
+    Loomkin.Signals.publish(signal)
     :ok
   end
 
@@ -112,7 +113,8 @@ defmodule Loomkin.Teams.Cluster do
   @spec handle_node_leave(node()) :: :ok
   def handle_node_leave(node) do
     Logger.warning("[Cluster] Node left: #{node}")
-    Phoenix.PubSub.broadcast(Loomkin.PubSub, "cluster:events", {:node_left, node})
+    signal = Loomkin.Signals.System.NodeLeft.new!(%{node: node})
+    Loomkin.Signals.publish(signal)
     :ok
   end
 

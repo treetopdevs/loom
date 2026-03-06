@@ -104,12 +104,14 @@ defmodule Loomkin.LSP.ConfigListener do
 
   @impl true
   def init(_opts) do
-    Phoenix.PubSub.subscribe(Loomkin.PubSub, "loom:system")
+    Loomkin.Signals.subscribe("system.config.loaded")
     {:ok, %{}}
   end
 
   @impl true
-  def handle_info({:config_loaded, _config}, state) do
+  def handle_info({:signal, %Jido.Signal{} = sig}, state), do: handle_info(sig, state)
+
+  def handle_info(%Jido.Signal{type: "system.config.loaded"}, state) do
     Loomkin.LSP.Supervisor.start_from_config()
     {:noreply, state}
   end

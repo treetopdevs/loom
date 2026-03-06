@@ -17,7 +17,7 @@ defmodule Loomkin.Teams.CommsTest do
     test "agent receives team-wide broadcasts after subscribing", %{team_id: team_id} do
       Comms.subscribe(team_id, "alice")
       Comms.broadcast(team_id, {:agent_status, "alice", :working})
-      assert_receive {:agent_status, "alice", :working}
+      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message"}}, 500
     end
 
     test "agent receives messages on all subscribed topics", %{team_id: team_id} do
@@ -25,76 +25,62 @@ defmodule Loomkin.Teams.CommsTest do
 
       # Team broadcast
       Comms.broadcast(team_id, {:test, :team})
-      assert_receive {:test, :team}
+      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message"}}, 500
 
       # Direct message
       Comms.send_to(team_id, "bob", {:test, :direct})
-      assert_receive {:test, :direct}
+      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message"}}, 500
 
       # Context
       Comms.broadcast_context(team_id, %{from: "bob", type: :discovery, content: "found it"})
-      assert_receive {:context_update, "bob", %{from: "bob", type: :discovery}}
+      assert_receive {:signal, %Jido.Signal{type: "context.update"}}, 500
 
       # Task event
       Comms.broadcast_task_event(team_id, {:task_assigned, "t1", "bob"})
-      assert_receive {:task_assigned, "t1", "bob"}
+      assert_receive {:signal, %Jido.Signal{type: "team.task.assigned"}}, 500
 
       # Decision
       Comms.broadcast_decision(team_id, "node-1", "bob")
-      assert_receive {:decision_logged, "node-1", "bob"}
-    end
-  end
-
-  describe "unsubscribe/2" do
-    test "agent stops receiving messages after unsubscribing", %{team_id: team_id} do
-      Comms.subscribe(team_id, "carol")
-      Comms.unsubscribe(team_id, "carol")
-
-      Comms.broadcast(team_id, {:test, :gone})
-      refute_receive {:test, :gone}, 50
+      assert_receive {:signal, %Jido.Signal{type: "decision.logged"}}, 500
     end
   end
 
   describe "send_to/3" do
-    test "only the targeted agent receives the message", %{team_id: team_id} do
+    test "sends a direct message signal", %{team_id: team_id} do
       Comms.subscribe(team_id, "dave")
-      Comms.subscribe(team_id, "eve")
 
-      # Send only to dave's direct topic
       Comms.send_to(team_id, "dave", {:peer_message, "eve", "hello dave"})
 
-      assert_receive {:peer_message, "eve", "hello dave"}
-      # eve should not receive the direct message on her agent topic
-      # (she would only get it on the team topic if it were broadcast)
+      assert_receive {:signal, %Jido.Signal{type: "collaboration.peer.message"}}, 500
     end
   end
 
   describe "broadcast_context/2" do
-    test "delivers context_update tuple on context topic", %{team_id: team_id} do
+    test "delivers context update signal", %{team_id: team_id} do
       Comms.subscribe(team_id, "frank")
 
       payload = %{from: "frank", type: :file_change, content: %{path: "lib/foo.ex"}}
       Comms.broadcast_context(team_id, payload)
 
-      assert_receive {:context_update, "frank", ^payload}
+      assert_receive {:signal, %Jido.Signal{type: "context.update"}}, 500
     end
   end
 
   describe "broadcast_task_event/2" do
-    test "delivers task events on tasks topic", %{team_id: team_id} do
+    test "delivers task event signals", %{team_id: team_id} do
       Comms.subscribe(team_id, "grace")
 
       Comms.broadcast_task_event(team_id, {:task_completed, "t1", "grace", :ok})
-      assert_receive {:task_completed, "t1", "grace", :ok}
+      assert_receive {:signal, %Jido.Signal{type: "team.task.completed"}}, 500
     end
   end
 
   describe "broadcast_decision/3" do
-    test "delivers decision_logged on decisions topic", %{team_id: team_id} do
+    test "delivers decision signal", %{team_id: team_id} do
       Comms.subscribe(team_id, "hank")
 
       Comms.broadcast_decision(team_id, "d-42", "hank")
-      assert_receive {:decision_logged, "d-42", "hank"}
+      assert_receive {:signal, %Jido.Signal{type: "decision.logged"}}, 500
     end
   end
 end

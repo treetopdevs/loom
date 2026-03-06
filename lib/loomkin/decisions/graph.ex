@@ -16,15 +16,9 @@ defmodule Loomkin.Decisions.Graph do
          |> DecisionNode.changeset(attrs)
          |> Repo.insert() do
       {:ok, node} ->
-        Phoenix.PubSub.broadcast(Loomkin.PubSub, "decision_graph", {:node_added, node})
-
-        if team_id = get_in(node.metadata, ["team_id"]) do
-          Phoenix.PubSub.broadcast(
-            Loomkin.PubSub,
-            "decision_graph:#{team_id}",
-            {:node_added, node}
-          )
-        end
+        team_id = get_in(node.metadata, ["team_id"])
+        signal = Loomkin.Signals.Decision.NodeAdded.new!(%{team_id: team_id || ""})
+        Loomkin.Signals.publish(%{signal | data: Map.put(signal.data, :node, node)})
 
         {:ok, node}
 
@@ -256,15 +250,9 @@ defmodule Loomkin.Decisions.Graph do
         decision: decision
       }
 
-      Phoenix.PubSub.broadcast(Loomkin.PubSub, "decision_graph", {:pivot_created, result})
-
-      if team_id = get_in(base_metadata, ["team_id"]) do
-        Phoenix.PubSub.broadcast(
-          Loomkin.PubSub,
-          "decision_graph:#{team_id}",
-          {:pivot_created, result}
-        )
-      end
+      team_id = get_in(base_metadata, ["team_id"])
+      signal = Loomkin.Signals.Decision.PivotCreated.new!(%{team_id: team_id || ""})
+      Loomkin.Signals.publish(%{signal | data: Map.put(signal.data, :result, result)})
 
       result
     end)

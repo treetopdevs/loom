@@ -2,6 +2,7 @@ defmodule Loomkin.Teams.AgentAsyncTest do
   use ExUnit.Case, async: false
 
   alias Loomkin.Teams.Agent
+  alias Loomkin.Teams.QueuedMessage
 
   defp unique_team_id do
     "test-async-#{:erlang.unique_integer([:positive])}"
@@ -37,6 +38,13 @@ defmodule Loomkin.Teams.AgentAsyncTest do
     task
   end
 
+  # Send a tuple message directly to the agent (bypassing PubSub/Bus).
+  # The agent's handle_info still matches tuples for messages not yet
+  # represented as signal types.
+  defp send_to_agent(pid, msg) do
+    send(pid, msg)
+  end
+
   describe "async struct defaults" do
     test "new agent has nil loop_task and empty queues" do
       %{pid: pid} = start_agent()
@@ -70,21 +78,12 @@ defmodule Loomkin.Teams.AgentAsyncTest do
     end
 
     test "clears queues on cancel" do
-      %{pid: pid, team_id: team_id} = start_agent()
+      %{pid: pid} = start_agent()
       _task = simulate_active_loop(pid)
 
-      # Queue some messages
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
-        {:context_update, "peer-1", %{info: "test"}}
-      )
-
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
-        {:tasks_unblocked, ["task-1"]}
-      )
+      # Queue some messages directly (agent no longer listens on PubSub)
+      send_to_agent(pid, {:context_update, "peer-1", %{info: "test"}})
+      send_to_agent(pid, {:tasks_unblocked, ["task-1"]})
 
       Process.sleep(50)
 
@@ -113,32 +112,30 @@ defmodule Loomkin.Teams.AgentAsyncTest do
 
   describe "priority routing during active loop" do
     test "queues normal-priority messages in pending_updates" do
-      %{pid: pid, team_id: team_id} = start_agent()
+      %{pid: pid} = start_agent()
       _task = simulate_active_loop(pid)
 
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
-        {:context_update, "peer-1", %{info: "test"}}
-      )
+      send_to_agent(pid, {:context_update, "peer-1", %{info: "test"}})
 
       Process.sleep(50)
 
       state = :sys.get_state(pid)
-      assert length(state.pending_updates) == 1
-      assert {:context_update, "peer-1", %{info: "test"}} in state.pending_updates
+
+      matching =
+        Enum.filter(state.pending_updates, fn qm ->
+          qm.content == {:context_update, "peer-1", %{info: "test"}}
+        end)
+
+      assert length(matching) == 1
+      assert %QueuedMessage{priority: :normal} = hd(matching)
       assert state.priority_queue == []
     end
 
     test "queues high-priority messages in priority_queue" do
-      %{pid: pid, team_id: team_id} = start_agent()
+      %{pid: pid} = start_agent()
       _task = simulate_active_loop(pid)
 
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
-        {:tasks_unblocked, ["task-1"]}
-      )
+      send_to_agent(pid, {:tasks_unblocked, ["task-1"]})
 
       Process.sleep(50)
 
@@ -148,14 +145,10 @@ defmodule Loomkin.Teams.AgentAsyncTest do
     end
 
     test "ignores low-priority messages during loop" do
-      %{pid: pid, team_id: team_id} = start_agent()
+      %{pid: pid} = start_agent()
       _task = simulate_active_loop(pid)
 
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
-        {:agent_status, "other-agent", :idle}
-      )
+      send_to_agent(pid, {:agent_status, "other-agent", :idle})
 
       Process.sleep(50)
 
@@ -165,14 +158,10 @@ defmodule Loomkin.Teams.AgentAsyncTest do
     end
 
     test "handles urgent abort_task by killing loop" do
-      %{pid: pid, team_id: team_id} = start_agent()
+      %{pid: pid} = start_agent()
       task = simulate_active_loop(pid)
 
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
-        {:abort_task, "emergency"}
-      )
+      send_to_agent(pid, {:abort_task, "emergency"})
 
       Process.sleep(100)
 
@@ -183,14 +172,10 @@ defmodule Loomkin.Teams.AgentAsyncTest do
     end
 
     test "handles urgent budget_exceeded by killing loop" do
-      %{pid: pid, team_id: team_id} = start_agent()
+      %{pid: pid} = start_agent()
       task = simulate_active_loop(pid)
 
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
-        {:budget_exceeded, :team}
-      )
+      send_to_agent(pid, {:budget_exceeded, :team})
 
       Process.sleep(100)
 
@@ -201,14 +186,10 @@ defmodule Loomkin.Teams.AgentAsyncTest do
     end
 
     test "handles urgent file_conflict by queuing injection (loop continues)" do
-      %{pid: pid, team_id: team_id} = start_agent()
+      %{pid: pid} = start_agent()
       task = simulate_active_loop(pid)
 
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
-        {:file_conflict, %{file: "lib/foo.ex"}}
-      )
+      send_to_agent(pid, {:file_conflict, %{file: "lib/foo.ex"}})
 
       Process.sleep(50)
 
@@ -219,8 +200,11 @@ defmodule Loomkin.Teams.AgentAsyncTest do
 
       # Warning should be queued as inject_system_message (not in messages yet)
       assert Enum.any?(state.priority_queue, fn
-               {:inject_system_message, content} -> String.contains?(content, "File conflict")
-               _ -> false
+               %QueuedMessage{content: {:inject_system_message, content}} ->
+                 String.contains?(content, "File conflict")
+
+               _ ->
+                 false
              end)
     end
 
@@ -231,14 +215,19 @@ defmodule Loomkin.Teams.AgentAsyncTest do
       fake_task = %Task{pid: self(), ref: ref, owner: self(), mfa: {__MODULE__, :fake, []}}
 
       # Simulate active loop with a queued file_conflict inject
+      conflict_qm =
+        QueuedMessage.new(
+          {:inject_system_message, "[URGENT] File conflict detected: %{file: \"lib/foo.ex\"}"},
+          priority: :urgent,
+          source: :system
+        )
+
       :sys.replace_state(pid, fn state ->
         %{
           state
           | loop_task: {fake_task, nil},
             status: :working,
-            priority_queue: [
-              {:inject_system_message, "[URGENT] File conflict detected: %{file: \"lib/foo.ex\"}"}
-            ]
+            priority_queue: [conflict_qm]
         }
       end)
 
@@ -254,14 +243,14 @@ defmodule Loomkin.Teams.AgentAsyncTest do
     end
 
     test "multiple messages accumulate in correct queues" do
-      %{pid: pid, team_id: team_id} = start_agent()
+      %{pid: pid} = start_agent()
       _task = simulate_active_loop(pid)
 
-      # Send multiple messages of different priorities
-      Phoenix.PubSub.broadcast(Loomkin.PubSub, "team:#{team_id}", {:context_update, "p1", %{}})
-      Phoenix.PubSub.broadcast(Loomkin.PubSub, "team:#{team_id}", {:tasks_unblocked, ["t1"]})
-      Phoenix.PubSub.broadcast(Loomkin.PubSub, "team:#{team_id}", {:peer_message, "lead", "hi"})
-      Phoenix.PubSub.broadcast(Loomkin.PubSub, "team:#{team_id}", {:agent_status, "x", :idle})
+      # Send multiple messages of different priorities directly
+      send_to_agent(pid, {:context_update, "p1", %{}})
+      send_to_agent(pid, {:tasks_unblocked, ["t1"]})
+      send_to_agent(pid, {:peer_message, "lead", "hi"})
+      send_to_agent(pid, {:agent_status, "x", :idle})
 
       Process.sleep(50)
 
@@ -276,13 +265,9 @@ defmodule Loomkin.Teams.AgentAsyncTest do
 
   describe "idle path unchanged" do
     test "context_update works normally when idle" do
-      %{pid: pid, team_id: team_id} = start_agent()
+      %{pid: pid} = start_agent()
 
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
-        {:context_update, "peer-1", %{info: "test data"}}
-      )
+      send_to_agent(pid, {:context_update, "peer-1", %{info: "test data"}})
 
       Process.sleep(50)
 
@@ -292,13 +277,9 @@ defmodule Loomkin.Teams.AgentAsyncTest do
     end
 
     test "peer_message works normally when idle" do
-      %{pid: pid, team_id: team_id} = start_agent()
+      %{pid: pid} = start_agent()
 
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{team_id}",
-        {:peer_message, "lead", "do the thing"}
-      )
+      send_to_agent(pid, {:peer_message, "lead", "do the thing"})
 
       Process.sleep(50)
 
@@ -377,13 +358,22 @@ defmodule Loomkin.Teams.AgentAsyncTest do
       ref = make_ref()
       fake_task = %Task{pid: self(), ref: ref, owner: self(), mfa: {__MODULE__, :fake, []}}
 
+      pending_qm =
+        QueuedMessage.new({:context_update, "peer-1", %{v: 1}},
+          priority: :normal,
+          source: :system
+        )
+
+      priority_qm =
+        QueuedMessage.new({:tasks_unblocked, ["t1"]}, priority: :high, source: :system)
+
       :sys.replace_state(pid, fn state ->
         %{
           state
           | loop_task: {fake_task, nil},
             status: :working,
-            pending_updates: [{:context_update, "peer-1", %{v: 1}}],
-            priority_queue: [{:tasks_unblocked, ["t1"]}]
+            pending_updates: [pending_qm],
+            priority_queue: [priority_qm]
         }
       end)
 

@@ -167,6 +167,11 @@ defmodule Loomkin.Session.ContextWindow do
         _ -> nil
       end
 
+    # When using Anthropic OAuth, the token requires the system prompt to
+    # start with the Claude Code identifier string. Prepend it here so all
+    # code paths (agent loop, architect, conversational) get it automatically.
+    system_prompt = maybe_prepend_oauth_identifier(system_prompt, model)
+
     # Build enriched system prompt
     system_parts = [system_prompt]
     system_parts = inject_decision_context(system_parts, session_id)
@@ -365,6 +370,24 @@ defmodule Loomkin.Session.ContextWindow do
 
   defp message_content(%{content: content}) when is_binary(content), do: content
   defp message_content(_), do: ""
+
+  @claude_code_identifier "You are Claude Code, Anthropic's official CLI for Claude."
+
+  defp maybe_prepend_oauth_identifier(system_prompt, model) when is_binary(model) do
+    case String.split(model, ":", parts: 2) do
+      ["anthropic", _model_id] ->
+        if Loomkin.LLM.oauth_active?("anthropic") do
+          @claude_code_identifier <> "\n\n" <> system_prompt
+        else
+          system_prompt
+        end
+
+      _ ->
+        system_prompt
+    end
+  end
+
+  defp maybe_prepend_oauth_identifier(system_prompt, _model), do: system_prompt
 
   defp weak_model do
     if Code.ensure_loaded?(Loomkin.Config) do

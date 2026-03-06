@@ -18,8 +18,6 @@ defmodule Loomkin.Teams.ConflictDetector do
   alias Loomkin.Decisions.Graph
   alias Loomkin.Teams.Comms
 
-  @pubsub Loomkin.PubSub
-
   # Actions that indicate modification intent
   @modify_actions ~w(add create write implement build)
   @remove_actions ~w(remove delete drop deprecate)
@@ -106,9 +104,9 @@ defmodule Loomkin.Teams.ConflictDetector do
   def init(opts) do
     team_id = Keyword.fetch!(opts, :team_id)
 
-    Phoenix.PubSub.subscribe(@pubsub, "team:#{team_id}")
-    Phoenix.PubSub.subscribe(@pubsub, "team:#{team_id}:tasks")
-    Phoenix.PubSub.subscribe(@pubsub, "team:#{team_id}:decisions")
+    Loomkin.Signals.subscribe("agent.tool.*")
+    Loomkin.Signals.subscribe("team.task.*")
+    Loomkin.Signals.subscribe("decision.logged")
 
     state = %{
       team_id: team_id,
@@ -126,11 +124,20 @@ defmodule Loomkin.Teams.ConflictDetector do
 
   # --- File edit tracking ---
 
-  # AgentLoop emits {:tool_executing, agent_name, %{tool_name: name, tool_target: path}}
-  # and {:tool_complete, agent_name, %{tool_name: name, result: text}}
   @impl true
+  def handle_info({:signal, %Jido.Signal{} = sig}, state) do
+    if signal_for_team?(sig, state.team_id) do
+      handle_info(sig, state)
+    else
+      {:noreply, state}
+    end
+  end
+
   def handle_info(
-        {:tool_executing, agent_name, %{tool_name: tool, tool_target: file_path}},
+        %Jido.Signal{
+          type: "agent.tool.executing",
+          data: %{agent_name: agent_name, payload: %{tool_name: tool, tool_target: file_path}}
+        },
         state
       )
       when tool in ["file_write", "file_edit"] do
@@ -142,8 +149,10 @@ defmodule Loomkin.Teams.ConflictDetector do
     end
   end
 
-  @impl true
-  def handle_info({:tool_complete, _agent_name, %{tool_name: tool}}, state)
+  def handle_info(
+        %Jido.Signal{type: "agent.tool.complete", data: %{payload: %{tool_name: tool}}},
+        state
+      )
       when tool in ["file_write", "file_edit"] do
     # tool_complete doesn't carry file_path, but tool_executing already tracked it
     {:noreply, state}
@@ -151,8 +160,13 @@ defmodule Loomkin.Teams.ConflictDetector do
 
   # --- Task tracking ---
 
-  @impl true
-  def handle_info({:task_assigned, task_id, agent_name}, state) do
+  def handle_info(
+        %Jido.Signal{
+          type: "team.task.assigned",
+          data: %{task_id: task_id, agent_name: agent_name}
+        },
+        state
+      ) do
     case Loomkin.Teams.Tasks.get_task(task_id) do
       {:ok, task} ->
         task_info = %{
@@ -170,28 +184,24 @@ defmodule Loomkin.Teams.ConflictDetector do
     end
   end
 
-  @impl true
-  def handle_info({:task_completed, task_id, _owner, _result}, state) do
+  def handle_info(%Jido.Signal{type: "team.task.completed", data: %{task_id: task_id}}, state) do
     state = %{state | active_tasks: Map.delete(state.active_tasks, task_id)}
     {:noreply, state}
   end
 
-  @impl true
-  def handle_info({:task_failed, task_id, _owner, _reason}, state) do
+  def handle_info(%Jido.Signal{type: "team.task.failed", data: %{task_id: task_id}}, state) do
     state = %{state | active_tasks: Map.delete(state.active_tasks, task_id)}
     {:noreply, state}
   end
 
   # --- Decision graph watching ---
 
-  @impl true
-  def handle_info({:decision_logged, node_id, _agent_name}, state) do
+  def handle_info(%Jido.Signal{type: "decision.logged", data: %{node_id: node_id}}, state) do
     state = check_decision_conflict(state, node_id)
     {:noreply, state}
   end
 
-  # Catch-all
-  @impl true
+  # Catch-all for unmatched signals and other messages
   def handle_info(_msg, state) do
     {:noreply, state}
   end
@@ -396,4 +406,12 @@ defmodule Loomkin.Teams.ConflictDetector do
 
   defp truncate(text, max) when byte_size(text) <= max, do: text
   defp truncate(text, max), do: String.slice(text, 0, max) <> "..."
+
+  defp signal_for_team?(sig, team_id) do
+    signal_team_id =
+      get_in(sig.data, [:team_id]) ||
+        get_in(sig, [Access.key(:extensions, %{}), "loomkin", "team_id"])
+
+    signal_team_id == nil or signal_team_id == team_id
+  end
 end

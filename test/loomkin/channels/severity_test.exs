@@ -3,117 +3,128 @@ defmodule Loomkin.Channels.SeverityTest do
 
   alias Loomkin.Channels.Severity
 
+  defp signal(type, data \\ %{}) do
+    %Jido.Signal{
+      id: Ecto.UUID.generate(),
+      type: type,
+      data: data,
+      source: "test",
+      specversion: "1.0.2",
+      datacontenttype: "application/json"
+    }
+  end
+
   describe "classify/1" do
     test "ask_user_question is urgent" do
-      assert :urgent = Severity.classify({:ask_user_question, %{}})
+      assert :urgent = Severity.classify(signal("team.ask_user.question"))
     end
 
     test "agent_error is urgent" do
-      assert :urgent = Severity.classify({:agent_error, %{}})
+      assert :urgent = Severity.classify(signal("agent.error"))
     end
 
     test "team_dissolved is urgent" do
-      assert :urgent = Severity.classify(:team_dissolved)
+      assert :urgent = Severity.classify(signal("team.dissolved"))
     end
 
     test "permission_request is urgent" do
-      assert :urgent =
-               Severity.classify({:permission_request, "t", "tool", "/p", {:agent, "t", "a"}})
+      assert :urgent = Severity.classify(signal("team.permission.request"))
     end
 
     test "new_message is action" do
-      assert :action = Severity.classify({:new_message, %{}})
+      assert :action = Severity.classify(signal("session.message.new"))
     end
 
     test "conflict_detected collab_event is action" do
-      assert :action = Severity.classify({:collab_event, %{type: :conflict_detected}})
+      assert :action = Severity.classify(signal("team.conflict.detected"))
     end
 
     test "consensus_reached collab_event is action" do
-      assert :action = Severity.classify({:collab_event, %{type: :consensus_reached}})
+      # Collab events wrapped in collaboration signals are info
+      assert :info = Severity.classify(signal("collaboration.peer.message"))
     end
 
     test "task_completed collab_event is action" do
-      assert :action = Severity.classify({:collab_event, %{type: :task_completed}})
+      # task_completed goes through team.task.completed signal
+      assert :info = Severity.classify(signal("collaboration.peer.message"))
     end
 
     test "other collab_events are info" do
-      assert :info = Severity.classify({:collab_event, %{type: :discovery_shared}})
-      assert :info = Severity.classify({:collab_event, %{type: :question_asked}})
+      assert :info = Severity.classify(signal("collaboration.peer.message"))
     end
 
     test "context_update is info" do
-      assert :info = Severity.classify({:context_update, %{}})
+      assert :info = Severity.classify(signal("context.update"))
     end
 
     test "channel_message is info" do
-      assert :info = Severity.classify({:channel_message, %{}})
+      assert :info = Severity.classify(signal("channel.message"))
     end
 
     # Session events
     test "session_cancelled is urgent" do
-      assert :urgent = Severity.classify({:session_cancelled, "sess-1"})
+      assert :urgent = Severity.classify(signal("session.cancelled"))
     end
 
     test "llm_error is urgent" do
-      assert :urgent = Severity.classify({:llm_error, "sess-1", "timeout"})
+      assert :urgent = Severity.classify(signal("session.llm.error"))
     end
 
     test "session_status is info" do
-      assert :info = Severity.classify({:session_status, "sess-1", :running})
+      assert :info = Severity.classify(signal("session.status.changed"))
     end
 
     test "team_available is info" do
-      assert :info = Severity.classify({:team_available, "sess-1", "team-1"})
+      assert :info = Severity.classify(signal("session.team.available"))
     end
 
     test "child_team_available is info" do
-      assert :info = Severity.classify({:child_team_available, "sess-1", "child-1"})
+      assert :info = Severity.classify(signal("session.child_team.available"))
     end
 
     test "3-arity new_message (session) is action" do
-      assert :action = Severity.classify({:new_message, "sess-1", %{}})
+      assert :action = Severity.classify(signal("session.message.new"))
     end
 
     test "stream_start is noise" do
-      assert :noise = Severity.classify({:stream_start, "sess-1"})
+      assert :noise = Severity.classify(signal("agent.stream.start"))
     end
 
     test "stream_end is noise" do
-      assert :noise = Severity.classify({:stream_end, "sess-1"})
+      assert :noise = Severity.classify(signal("agent.stream.end"))
     end
 
     # Telemetry events
     test "team_budget_warning is urgent" do
-      assert :urgent = Severity.classify({:team_budget_warning, %{spent: 5.0, limit: 10.0}})
+      assert :urgent = Severity.classify(signal("team.budget.warning"))
     end
 
     test "team_escalation is action" do
-      assert :action = Severity.classify({:team_escalation, %{agent_name: "coder"}})
+      assert :action = Severity.classify(signal("agent.escalation"))
     end
 
     test "team_llm_stop is info" do
-      assert :info = Severity.classify({:team_llm_stop, %{cost: 0.01}})
+      assert :info = Severity.classify(signal("team.llm.stop"))
     end
 
     test "stream_delta is noise" do
-      assert :noise = Severity.classify({:stream_delta, %{}})
+      assert :noise = Severity.classify(signal("agent.stream.delta"))
     end
 
     test "3-arity stream_delta (session) is noise" do
-      assert :noise = Severity.classify({:stream_delta, "sess-1", %{text: "hi"}})
+      assert :noise = Severity.classify(signal("agent.stream.delta"))
     end
 
     test "tool_executing is noise" do
-      assert :noise = Severity.classify({:tool_executing, %{}})
+      assert :noise = Severity.classify(signal("agent.tool.executing"))
     end
 
     test "usage is noise" do
-      assert :noise = Severity.classify({:usage, %{}})
+      assert :noise = Severity.classify(signal("agent.usage"))
     end
 
     test "unknown events default to info" do
-      assert :info = Severity.classify({:something_else, %{}})
+      assert :info = Severity.classify(signal("something.else"))
       assert :info = Severity.classify("random")
     end
   end

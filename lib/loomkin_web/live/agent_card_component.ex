@@ -22,6 +22,8 @@ defmodule LoomkinWeb.AgentCardComponent do
   attr :card, :map, required: true
   attr :focused, :boolean, default: false
   attr :team_id, :string, required: true
+  attr :queue_count, :integer, default: 0
+  attr :scheduled_count, :integer, default: 0
 
   def agent_card(assigns) do
     ~H"""
@@ -174,34 +176,80 @@ defmodule LoomkinWeb.AgentCardComponent do
             </svg>
           </button>
         </div>
+
+        <%!-- Queue badge --%>
+        <button
+          :if={@queue_count > 0}
+          phx-click="open_queue_drawer"
+          phx-value-agent={@card.name}
+          phx-value-team-id={@team_id}
+          class="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25 transition-colors cursor-pointer flex-shrink-0"
+          title={"#{@queue_count} queued messages"}
+        >
+          <svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zm0 10.5a.75.75 0 01.75-.75h7.5a.75.75 0 010 1.5h-7.5a.75.75 0 01-.75-.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10z" />
+          </svg>
+          {@queue_count}
+        </button>
+
+        <%!-- Scheduled indicator --%>
+        <span
+          :if={@scheduled_count > 0}
+          class="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/15 text-amber-400 flex-shrink-0"
+          title={"#{@scheduled_count} scheduled messages"}
+        >
+          <svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+            <path
+              fill-rule="evenodd"
+              d="M10 18a8 8 0 100-16 8 8 0 000 16zm.75-13a.75.75 0 00-1.5 0v5c0 .414.336.75.75.75h4a.75.75 0 000-1.5h-3.25V5z"
+              clip-rule="evenodd"
+            />
+          </svg>
+          {@scheduled_count}
+        </span>
       </div>
 
       <%!-- Content area --%>
       <div class={["mt-3 flex-1 min-h-0", @focused && "overflow-auto"]}>
         <%= case @card.content_type do %>
           <% :thinking -> %>
-            <p
-              class={["text-xs leading-relaxed animate-pulse", !@focused && "line-clamp-4"]}
+            <div
+              class={[
+                "text-xs leading-relaxed animate-pulse agent-card-content",
+                !@focused && "line-clamp-4"
+              ]}
               style="color: var(--text-secondary);"
             >
-              {format_content(@card.latest_content)}
-            </p>
+              {render_card_markdown(format_content(@card.latest_content, @focused))}
+            </div>
           <% :last_thinking -> %>
-            <p
-              class={["text-xs leading-relaxed opacity-50", !@focused && "line-clamp-3"]}
+            <div
+              class={[
+                "text-xs leading-relaxed opacity-50 agent-card-content",
+                !@focused && "line-clamp-3"
+              ]}
               style="color: var(--text-secondary);"
             >
-              {format_content(@card.latest_content)}
-            </p>
+              {render_card_markdown(format_content(@card.latest_content, @focused))}
+            </div>
           <% :message -> %>
-            <p
-              class={["text-xs leading-relaxed", !@focused && "line-clamp-4"]}
+            <div
+              class={[
+                "text-xs leading-relaxed agent-card-content",
+                !@focused && "line-clamp-4"
+              ]}
               style="color: var(--text-secondary);"
             >
-              {format_content(@card.latest_content)}
-            </p>
+              {render_card_markdown(format_content(@card.latest_content, @focused))}
+            </div>
           <% _ -> %>
-            <p class="text-xs text-muted italic">idle</p>
+            <%= if @card.status == :complete do %>
+              <p class="text-xs italic" style="color: var(--color-emerald-400);">
+                Orientation complete
+              </p>
+            <% else %>
+              <p class="text-xs text-muted italic">idle</p>
+            <% end %>
         <% end %>
 
         <%!-- Last tool (always visible as subtle footer) --%>
@@ -241,6 +289,7 @@ defmodule LoomkinWeb.AgentCardComponent do
   defp status_dot_class(:paused), do: "bg-blue-400 animate-pulse"
   defp status_dot_class(:error), do: "bg-red-400 agent-dot-error"
   defp status_dot_class(:waiting_permission), do: "bg-amber-400 agent-dot-thinking"
+  defp status_dot_class(:complete), do: "bg-emerald-400"
   defp status_dot_class(_), do: "bg-zinc-500"
 
   # --- Tool lookup helpers ---
@@ -258,10 +307,31 @@ defmodule LoomkinWeb.AgentCardComponent do
 
   defp format_role(_), do: "-"
 
-  defp format_content(nil), do: ""
+  defp format_content(nil, _focused), do: ""
 
-  defp format_content(content) when is_binary(content),
-    do: content |> String.trim() |> String.slice(0, 500)
+  defp format_content(content, focused) when is_binary(content) do
+    trimmed = String.trim(content)
+    if focused, do: trimmed, else: String.slice(trimmed, 0, 500)
+  end
 
-  defp format_content(_), do: ""
+  defp format_content(_, _focused), do: ""
+
+  defp render_card_markdown(""), do: ""
+
+  defp render_card_markdown(content) when is_binary(content) do
+    doc =
+      MDEx.new(render: [unsafe_: true])
+      |> MDEx.Document.put_markdown(content)
+
+    case MDEx.to_html(doc) do
+      {:ok, html} ->
+        Phoenix.HTML.raw(html)
+
+      _ ->
+        {:safe, escaped} = Phoenix.HTML.html_escape(content)
+        Phoenix.HTML.raw("<p>#{escaped}</p>")
+    end
+  end
+
+  defp render_card_markdown(_), do: ""
 end

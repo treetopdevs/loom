@@ -47,18 +47,20 @@ defmodule Loomkin.MCP.ConfigListener do
 
   @impl true
   def init(_opts) do
-    Phoenix.PubSub.subscribe(Loomkin.PubSub, "loom:system")
+    Loomkin.Signals.subscribe("system.config.loaded")
     {:ok, %{started: false}}
   end
 
   @impl true
-  def handle_info({:config_loaded, _config}, %{started: true} = state) do
+  def handle_info({:signal, %Jido.Signal{} = sig}, state), do: handle_info(sig, state)
+
+  def handle_info(%Jido.Signal{type: "system.config.loaded"}, %{started: true} = state) do
     # Already started MCP client — refresh instead of double-starting
     if GenServer.whereis(Loomkin.MCP.Client), do: Loomkin.MCP.Client.refresh()
     {:noreply, state}
   end
 
-  def handle_info({:config_loaded, _config}, %{started: false} = state) do
+  def handle_info(%Jido.Signal{type: "system.config.loaded"}, %{started: false} = state) do
     if Loomkin.MCP.ClientSupervisor.enabled?() do
       case DynamicSupervisor.start_child(Loomkin.MCP.DynSupervisor, Loomkin.MCP.Client) do
         {:ok, _pid} ->

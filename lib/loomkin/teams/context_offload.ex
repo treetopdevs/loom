@@ -84,17 +84,16 @@ defmodule Loomkin.Teams.ContextOffload do
         entry = ContextKeeper.index_entry(pid)
         keeper_state = ContextKeeper.get_state(pid)
 
-        Phoenix.PubSub.broadcast(
-          Loomkin.PubSub,
-          "team:#{team_id}",
-          {:keeper_created,
-           %{
-             id: keeper_state.id,
-             topic: topic,
-             source: to_string(agent_name),
-             tokens: keeper_state.token_count
-           }}
-        )
+        signal =
+          Loomkin.Signals.Context.KeeperCreated.new!(%{
+            id: keeper_state.id,
+            topic: topic,
+            source: to_string(agent_name),
+            team_id: team_id,
+            tokens: keeper_state.token_count
+          })
+
+        Loomkin.Signals.publish(signal)
 
         {:ok, pid, entry}
 

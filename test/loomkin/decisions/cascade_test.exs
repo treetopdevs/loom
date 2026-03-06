@@ -169,7 +169,12 @@ defmodule Loomkin.Decisions.CascadeTest do
 
       {:ok, 1} = Cascade.check_and_propagate(source.id)
 
-      assert_receive {:confidence_warning, warning}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:confidence_warning, warning}}
+                      }}
+
       assert warning.source_node_id == source.id
       assert warning.source_title == "Risky call"
       assert warning.source_confidence == 25
@@ -201,7 +206,12 @@ defmodule Loomkin.Decisions.CascadeTest do
       {:ok, _} = Graph.add_edge(source.id, downstream.id, :requires)
       {:ok, _} = Cascade.check_and_propagate(source.id)
 
-      assert_receive {:confidence_warning, warning}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:confidence_warning, warning}}
+                      }}
+
       assert warning.keeper_id == "keeper-abc"
     end
   end
@@ -234,7 +244,12 @@ defmodule Loomkin.Decisions.CascadeTest do
       Process.sleep(20)
       updated = Graph.get_node(downstream.id)
       assert updated.metadata["upstream_uncertainty"] == true
-      assert_receive {:confidence_warning, _}
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:confidence_warning, _}}
+                      }}
     end
 
     test "does not trigger cascade when updating non-confidence fields" do

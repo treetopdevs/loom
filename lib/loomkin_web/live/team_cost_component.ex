@@ -19,10 +19,12 @@ defmodule LoomkinWeb.TeamCostComponent do
   end
 
   @impl true
-  def update(%{team_id: team_id} = assigns, socket) do
+  def update(%{team_id: _team_id} = assigns, socket) do
     if connected?(socket) && !socket.assigns[:subscribed] do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "telemetry:team:#{team_id}")
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "telemetry:updates")
+      Loomkin.Signals.subscribe("agent.usage")
+      Loomkin.Signals.subscribe("agent.escalation")
+      Loomkin.Signals.subscribe("team.task.completed")
+      Loomkin.Signals.subscribe("system.metrics.updated")
     end
 
     {:ok,
@@ -162,13 +164,19 @@ defmodule LoomkinWeb.TeamCostComponent do
     end
   end
 
-  # --- PubSub handlers (forwarded from parent LiveView via send_update) ---
+  # --- Signal handlers ---
 
-  def handle_info({:usage, _agent_name, _payload}, socket) do
+  def handle_info(%Jido.Signal{type: "agent.usage"}, socket) do
     {:noreply, load_cost_data(socket)}
   end
 
-  def handle_info({:agent_escalation, agent_name, old_model, new_model}, socket) do
+  def handle_info(
+        %Jido.Signal{
+          type: "agent.escalation",
+          data: %{agent_name: agent_name, from_model: old_model, to_model: new_model}
+        },
+        socket
+      ) do
     escalation = %{
       agent: agent_name,
       from: old_model,
@@ -182,7 +190,11 @@ defmodule LoomkinWeb.TeamCostComponent do
      |> load_cost_data()}
   end
 
-  def handle_info({:task_completed, _task_id, _agent_name, _result}, socket) do
+  def handle_info(%Jido.Signal{type: "team.task.completed"}, socket) do
+    {:noreply, load_cost_data(socket)}
+  end
+
+  def handle_info(%Jido.Signal{type: "system.metrics.updated"}, socket) do
     {:noreply, load_cost_data(socket)}
   end
 

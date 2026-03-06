@@ -8,14 +8,24 @@ defmodule Loomkin.Teams.Role do
   for all built-in roles — meaning "use whatever the user configured."
   """
 
-  defstruct [:name, :model_tier, :tools, :system_prompt, :budget_limit]
+  defstruct [
+    :name,
+    :model_tier,
+    :tools,
+    :system_prompt,
+    :budget_limit,
+    reasoning_strategy: :react
+  ]
+
+  @type reasoning_strategy :: :react | :cot | :cod | :tot | :adaptive
 
   @type t :: %__MODULE__{
           name: atom(),
           model_tier: atom(),
           tools: [module()],
           system_prompt: String.t(),
-          budget_limit: float() | nil
+          budget_limit: float() | nil,
+          reasoning_strategy: reasoning_strategy()
         }
 
   # Legacy tier map — kept only for backward-compatible `model_for_tier/1` calls
@@ -274,6 +284,7 @@ defmodule Loomkin.Teams.Role do
   @built_in_role_data %{
     lead: %{
       model_tier: :default,
+      reasoning_strategy: :react,
       tools: @all_tools,
       system_prompt: """
       You are the team lead. Your PRIMARY job is decomposition, delegation, and coordination.
@@ -306,6 +317,7 @@ defmodule Loomkin.Teams.Role do
     },
     researcher: %{
       model_tier: :default,
+      reasoning_strategy: :react,
       tools: @read_only_tools ++ @decision_tools ++ @peer_tools ++ @cross_team_tools,
       system_prompt: """
       You are a research agent. Your job is to explore the codebase, analyze patterns,
@@ -331,6 +343,7 @@ defmodule Loomkin.Teams.Role do
     },
     coder: %{
       model_tier: :default,
+      reasoning_strategy: :react,
       tools:
         @read_only_tools ++
           @write_tools ++
@@ -375,6 +388,7 @@ defmodule Loomkin.Teams.Role do
     },
     reviewer: %{
       model_tier: :default,
+      reasoning_strategy: :react,
       tools:
         @read_only_tools ++
           [Loomkin.Tools.Shell] ++ @decision_tools ++ @peer_tools ++ @cross_team_tools,
@@ -401,6 +415,7 @@ defmodule Loomkin.Teams.Role do
     },
     tester: %{
       model_tier: :default,
+      reasoning_strategy: :react,
       tools:
         @read_only_tools ++
           [Loomkin.Tools.Shell] ++ @decision_tools ++ @peer_tools ++ @cross_team_tools,
@@ -423,6 +438,7 @@ defmodule Loomkin.Teams.Role do
     },
     concierge: %{
       model_tier: :default,
+      reasoning_strategy: :react,
       tools: @all_tools,
       system_prompt: """
       You are the Concierge — the warm, intelligent host of this session. You are the
@@ -465,6 +481,7 @@ defmodule Loomkin.Teams.Role do
     },
     orienter: %{
       model_tier: :fast,
+      reasoning_strategy: :cot,
       tools:
         @read_only_tools ++
           @decision_tools ++ @peer_tools ++ @cross_team_tools ++ [Loomkin.Tools.Git],
@@ -577,7 +594,8 @@ defmodule Loomkin.Teams.Role do
       model_tier: get_config_value(config, :model_tier, base.model_tier),
       tools: resolve_tools(config, base.tools),
       system_prompt: get_config_value(config, :system_prompt, base.system_prompt),
-      budget_limit: get_config_value(config, :budget_limit, base.budget_limit)
+      budget_limit: get_config_value(config, :budget_limit, base.budget_limit),
+      reasoning_strategy: get_config_value(config, :reasoning_strategy, base.reasoning_strategy)
     }
   end
 

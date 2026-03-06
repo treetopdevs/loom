@@ -1,38 +1,46 @@
 defmodule Loomkin.Teams.Comms do
-  @moduledoc "Convenience functions wrapping Phoenix.PubSub for team communication."
+  @moduledoc "Convenience functions wrapping Jido Signal Bus for team communication."
 
-  @pubsub Loomkin.PubSub
+  alias Loomkin.Signals
+  alias Loomkin.Signals.Extensions.Causality
 
-  @doc "Subscribe agent to all team topics."
-  def subscribe(team_id, agent_name) do
-    for topic <- topics(team_id, agent_name) do
-      Phoenix.PubSub.subscribe(@pubsub, topic)
-    end
-
+  @doc "Subscribe agent to all team signal paths."
+  def subscribe(_team_id, _agent_name) do
+    # Subscribe to all team-scoped signals via the bus
+    Signals.subscribe("agent.**")
+    Signals.subscribe("team.**")
+    Signals.subscribe("context.**")
+    Signals.subscribe("collaboration.**")
+    Signals.subscribe("decision.**")
     :ok
   end
 
-  @doc "Unsubscribe agent from all team topics."
-  def unsubscribe(team_id, agent_name) do
-    for topic <- topics(team_id, agent_name) do
-      Phoenix.PubSub.unsubscribe(@pubsub, topic)
-    end
-
+  @doc "Unsubscribe agent from all team topics (no-op with signal bus — handled by process termination)."
+  def unsubscribe(_team_id, _agent_name) do
     :ok
   end
 
   @doc "Send a direct message to a specific agent."
   def send_to(team_id, agent_name, message) do
-    Phoenix.PubSub.broadcast(
-      @pubsub,
-      "team:#{team_id}:agent:#{agent_name}",
-      message
-    )
+    signal =
+      Loomkin.Signals.Collaboration.PeerMessage.new!(
+        %{from: "system", team_id: team_id},
+        subject: to_string(agent_name)
+      )
+
+    %{signal | data: Map.merge(signal.data, %{target: to_string(agent_name), message: message})}
+    |> Causality.attach(team_id: team_id)
+    |> Signals.publish()
   end
 
   @doc "Broadcast a message to the entire team."
   def broadcast(team_id, message) do
-    Phoenix.PubSub.broadcast(@pubsub, "team:#{team_id}", message)
+    signal =
+      Loomkin.Signals.Collaboration.PeerMessage.new!(%{from: "system", team_id: team_id})
+
+    %{signal | data: Map.merge(signal.data, %{message: message})}
+    |> Causality.attach(team_id: team_id)
+    |> Signals.publish()
   end
 
   @doc """
@@ -45,11 +53,11 @@ defmodule Loomkin.Teams.Comms do
 
   """
   def broadcast_context(team_id, %{from: from} = payload, opts \\ []) do
-    Phoenix.PubSub.broadcast(
-      @pubsub,
-      "team:#{team_id}:context",
-      {:context_update, from, payload}
-    )
+    signal = Loomkin.Signals.Context.Update.new!(%{from: to_string(from), team_id: team_id})
+
+    %{signal | data: Map.merge(signal.data, %{payload: payload})}
+    |> Causality.attach(team_id: team_id, agent_name: to_string(from))
+    |> Signals.publish()
 
     propagate_up = Keyword.get(opts, :propagate_up, true)
 
@@ -72,7 +80,6 @@ defmodule Loomkin.Teams.Comms do
     agents = Context.list_agents(team_id)
 
     if agents == [] do
-      # No agents registered — fall back to topic broadcast
       broadcast_context(team_id, payload)
     else
       relevant =
@@ -81,10 +88,8 @@ defmodule Loomkin.Teams.Comms do
         |> RelevanceScorer.filter_relevant(payload, threshold)
 
       if relevant == [] do
-        # No relevant agents found — still broadcast on topic so it's not lost
         broadcast_context(team_id, payload)
       else
-        # Send targeted messages to relevant agents only
         Enum.each(relevant, fn {agent, _score} ->
           send_to(team_id, agent.name, {:context_update, from, payload})
         end)
@@ -122,17 +127,70 @@ defmodule Loomkin.Teams.Comms do
   end
 
   @doc "Broadcast a task event (assigned, completed, etc)."
+  def broadcast_task_event(team_id, {:task_assigned, task_id, agent_name}) do
+    Loomkin.Signals.Team.TaskAssigned.new!(%{
+      task_id: task_id,
+      agent_name: to_string(agent_name),
+      team_id: team_id
+    })
+    |> Causality.attach(team_id: team_id, agent_name: to_string(agent_name), task_id: task_id)
+    |> Signals.publish()
+  end
+
+  def broadcast_task_event(team_id, {:task_completed, task_id, owner, result}) do
+    signal =
+      Loomkin.Signals.Team.TaskCompleted.new!(%{
+        task_id: task_id,
+        owner: to_string(owner),
+        team_id: team_id
+      })
+
+    %{signal | data: Map.put(signal.data, :result, result)}
+    |> Causality.attach(team_id: team_id, agent_name: to_string(owner), task_id: task_id)
+    |> Signals.publish()
+  end
+
+  def broadcast_task_event(team_id, {:task_failed, task_id, owner, reason}) do
+    signal =
+      Loomkin.Signals.Team.TaskFailed.new!(%{
+        task_id: task_id,
+        owner: to_string(owner),
+        team_id: team_id
+      })
+
+    %{signal | data: Map.put(signal.data, :reason, reason)}
+    |> Causality.attach(team_id: team_id, agent_name: to_string(owner), task_id: task_id)
+    |> Signals.publish()
+  end
+
+  def broadcast_task_event(team_id, {:task_started, task_id, owner}) do
+    Loomkin.Signals.Team.TaskStarted.new!(%{
+      task_id: task_id,
+      owner: to_string(owner),
+      team_id: team_id
+    })
+    |> Causality.attach(team_id: team_id, agent_name: to_string(owner), task_id: task_id)
+    |> Signals.publish()
+  end
+
   def broadcast_task_event(team_id, event) do
-    Phoenix.PubSub.broadcast(@pubsub, "team:#{team_id}:tasks", event)
+    # Fallback for other task events
+    signal = Loomkin.Signals.Collaboration.PeerMessage.new!(%{from: "tasks", team_id: team_id})
+
+    %{signal | data: Map.merge(signal.data, %{message: event})}
+    |> Causality.attach(team_id: team_id)
+    |> Signals.publish()
   end
 
   @doc "Broadcast a decision graph change."
   def broadcast_decision(team_id, node_id, agent_name) do
-    Phoenix.PubSub.broadcast(
-      @pubsub,
-      "team:#{team_id}:decisions",
-      {:decision_logged, node_id, agent_name}
-    )
+    Loomkin.Signals.Decision.DecisionLogged.new!(%{
+      node_id: node_id,
+      agent_name: to_string(agent_name),
+      team_id: team_id
+    })
+    |> Causality.attach(team_id: team_id, agent_name: to_string(agent_name))
+    |> Signals.publish()
   end
 
   # -- Private --
@@ -140,7 +198,6 @@ defmodule Loomkin.Teams.Comms do
   @propagatable_types ~w[insight blocker discovery warning]
 
   defp maybe_propagate_to_parent(team_id, %{from: from} = payload) do
-    # payload[:type] may be atom or string depending on caller
     type = to_string(payload[:type] || "")
 
     if type in @propagatable_types do
@@ -148,25 +205,19 @@ defmodule Loomkin.Teams.Comms do
         {:ok, parent_team_id} ->
           propagated = Map.put(payload, :source_team, team_id)
 
-          Phoenix.PubSub.broadcast(
-            @pubsub,
-            "team:#{parent_team_id}:context",
-            {:context_update, from, propagated}
-          )
+          signal =
+            Loomkin.Signals.Context.Update.new!(%{
+              from: to_string(from),
+              team_id: parent_team_id
+            })
+
+          %{signal | data: Map.merge(signal.data, %{payload: propagated})}
+          |> Causality.attach(team_id: team_id, agent_name: to_string(from))
+          |> Signals.publish()
 
         :none ->
           :ok
       end
     end
-  end
-
-  defp topics(team_id, agent_name) do
-    [
-      "team:#{team_id}",
-      "team:#{team_id}:agent:#{agent_name}",
-      "team:#{team_id}:context",
-      "team:#{team_id}:tasks",
-      "team:#{team_id}:decisions"
-    ]
   end
 end

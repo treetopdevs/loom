@@ -47,17 +47,29 @@ defmodule Loomkin.Teams.ClusterTest do
 
   describe "Cluster.handle_node_join/1" do
     test "broadcasts node_joined event" do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "cluster:events")
+      Loomkin.Signals.subscribe("system.**")
       :ok = Cluster.handle_node_join(:test@localhost)
-      assert_receive {:node_joined, :test@localhost}
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "system.cluster.node_joined",
+                        data: %{node: :test@localhost}
+                      }},
+                     500
     end
   end
 
   describe "Cluster.handle_node_leave/1" do
     test "broadcasts node_left event" do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "cluster:events")
+      Loomkin.Signals.subscribe("system.**")
       :ok = Cluster.handle_node_leave(:test@localhost)
-      assert_receive {:node_left, :test@localhost}
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "system.cluster.node_left",
+                        data: %{node: :test@localhost}
+                      }},
+                     500
     end
   end
 

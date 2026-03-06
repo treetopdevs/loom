@@ -1093,11 +1093,33 @@ defmodule Loomkin.Session.Architect do
     end
   end
 
-  defp broadcast(session_id, event) do
-    Phoenix.PubSub.broadcast(Loomkin.PubSub, "session:#{session_id}", event)
+  defp broadcast(session_id, {:new_message, _sid, msg}) do
+    signal = Loomkin.Signals.Session.NewMessage.new!(%{session_id: session_id})
+    Loomkin.Signals.publish(%{signal | data: Map.put(signal.data, :message, msg)})
   rescue
-    e ->
-      Logger.debug("[Architect] Broadcast failed: #{Exception.message(e)}")
-      :ok
+    e -> Logger.debug("[Architect] Broadcast failed: #{Exception.message(e)}")
+  end
+
+  defp broadcast(session_id, {:permission_request, _sid, tool_name, tool_path, :session}) do
+    signal =
+      Loomkin.Signals.Session.PermissionRequest.new!(%{
+        session_id: session_id,
+        tool_name: tool_name,
+        tool_path: tool_path
+      })
+
+    Loomkin.Signals.publish(signal)
+  rescue
+    e -> Logger.debug("[Architect] Broadcast failed: #{Exception.message(e)}")
+  end
+
+  defp broadcast(session_id, event) do
+    # Catch-all for architect-specific events (phase, plan, step, stream, tool, retry)
+    signal =
+      Loomkin.Signals.Session.StatusChanged.new!(%{session_id: session_id, status: :unknown})
+
+    Loomkin.Signals.publish(%{signal | data: Map.put(signal.data, :raw_event, event)})
+  rescue
+    e -> Logger.debug("[Architect] Broadcast failed: #{Exception.message(e)}")
   end
 end

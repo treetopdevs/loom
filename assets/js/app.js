@@ -425,6 +425,48 @@ Hooks.AutoResizeTextarea = {
   }
 }
 
+Hooks.SortableQueue = {
+  mounted() {
+    this.initSortable()
+  },
+  initSortable() {
+    const items = this.el.querySelectorAll("[data-id]")
+    const handles = this.el.querySelectorAll(".drag-handle")
+
+    handles.forEach((handle, i) => {
+      const item = items[i]
+      if (!item) return
+
+      handle.setAttribute("draggable", "true")
+
+      handle.addEventListener("dragstart", (e) => {
+        item.classList.add("opacity-50")
+        e.dataTransfer.effectAllowed = "move"
+        e.dataTransfer.setData("text/plain", item.dataset.id)
+      })
+
+      handle.addEventListener("dragend", () => {
+        item.classList.remove("opacity-50")
+      })
+    })
+
+    this.el.addEventListener("dragover", (e) => {
+      e.preventDefault()
+      e.dataTransfer.dropEffect = "move"
+    })
+
+    this.el.addEventListener("drop", (e) => {
+      e.preventDefault()
+      const draggedId = e.dataTransfer.getData("text/plain")
+      const allItems = [...this.el.querySelectorAll("[data-id]")]
+      const ordered = allItems.map(el => el.dataset.id)
+      const agent = this.el.dataset.agent
+
+      this.pushEvent("reorder_queue", {agent: agent, ordered_ids: ordered})
+    })
+  }
+}
+
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 let liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,

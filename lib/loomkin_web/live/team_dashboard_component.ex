@@ -12,10 +12,12 @@ defmodule LoomkinWeb.TeamDashboardComponent do
   end
 
   @impl true
-  def update(%{team_id: team_id} = assigns, socket) do
+  def update(%{team_id: _team_id} = assigns, socket) do
     if !socket.assigns[:subscribed] do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{team_id}")
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{team_id}:tasks")
+      Loomkin.Signals.subscribe("agent.status")
+      Loomkin.Signals.subscribe("agent.escalation")
+      Loomkin.Signals.subscribe("agent.role.changed")
+      Loomkin.Signals.subscribe("team.task.*")
     end
 
     {:ok,
@@ -81,9 +83,12 @@ defmodule LoomkinWeb.TeamDashboardComponent do
   defp to_float(n) when is_number(n), do: n / 1
   defp to_float(_), do: 0.0
 
-  # --- PubSub handlers (forwarded from parent LiveView via send_update) ---
+  # --- Signal handlers ---
 
-  def handle_info({:agent_status, agent_name, status}, socket) do
+  def handle_info(
+        %Jido.Signal{type: "agent.status", data: %{agent_name: agent_name, status: status}},
+        socket
+      ) do
     agents =
       Enum.map(socket.assigns.agents, fn agent ->
         if agent.name == agent_name, do: %{agent | status: status}, else: agent
@@ -92,23 +97,32 @@ defmodule LoomkinWeb.TeamDashboardComponent do
     {:noreply, assign(socket, :agents, agents)}
   end
 
-  def handle_info({:task_assigned, _task_id, agent_name}, socket) do
+  def handle_info(
+        %Jido.Signal{type: "team.task.assigned", data: %{agent_name: agent_name}},
+        socket
+      ) do
     {:noreply, reload_tasks(socket, agent_name)}
   end
 
-  def handle_info({:task_completed, _task_id, agent_name, _result}, socket) do
-    {:noreply, reload_tasks(socket, agent_name)}
-  end
-
-  def handle_info({:task_started, _task_id, owner}, socket) do
+  def handle_info(%Jido.Signal{type: "team.task.completed", data: %{owner: owner}}, socket) do
     {:noreply, reload_tasks(socket, owner)}
   end
 
-  def handle_info({:task_failed, _task_id, owner, _reason}, socket) do
+  def handle_info(%Jido.Signal{type: "team.task.started", data: %{owner: owner}}, socket) do
     {:noreply, reload_tasks(socket, owner)}
   end
 
-  def handle_info({:role_changed, agent_name, _old_role, new_role}, socket) do
+  def handle_info(%Jido.Signal{type: "team.task.failed", data: %{owner: owner}}, socket) do
+    {:noreply, reload_tasks(socket, owner)}
+  end
+
+  def handle_info(
+        %Jido.Signal{
+          type: "agent.role.changed",
+          data: %{agent_name: agent_name, new_role: new_role}
+        },
+        socket
+      ) do
     agents =
       Enum.map(socket.assigns.agents, fn agent ->
         if agent.name == agent_name, do: %{agent | role: new_role}, else: agent
@@ -117,7 +131,7 @@ defmodule LoomkinWeb.TeamDashboardComponent do
     {:noreply, assign(socket, :agents, agents)}
   end
 
-  def handle_info({:agent_escalation, agent_name, _old_model, _new_model}, socket) do
+  def handle_info(%Jido.Signal{type: "agent.escalation", data: %{agent_name: agent_name}}, socket) do
     # Escalation may affect budget — reload cost data
     summary = CostTracker.team_cost_summary(socket.assigns.team_id)
     spent = to_float(summary.total_cost_usd)

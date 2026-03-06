@@ -49,8 +49,7 @@ defmodule Loomkin.Tools.CollectiveDecision do
       {:error, "Need at least 2 agents for a collective decision, found #{length(agents)}"}
     else
       vote_id = Ecto.UUID.generate()
-      vote_topic = "team:#{team_id}:vote:#{vote_id}"
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, vote_topic)
+      Loomkin.Signals.subscribe("collaboration.vote.*")
 
       # Request votes from all agents
       Enum.each(agents, fn agent ->
@@ -130,7 +129,8 @@ defmodule Loomkin.Tools.CollectiveDecision do
 
   defp do_collect_votes(vote_id, expected, received, acc, timeout) do
     receive do
-      {:vote_response, ^vote_id, response} ->
+      {:signal,
+       %Jido.Signal{type: "collaboration.vote.response", data: %{vote_id: ^vote_id} = response}} ->
         from = response.from
 
         if MapSet.member?(expected, from) and not MapSet.member?(received, from) do

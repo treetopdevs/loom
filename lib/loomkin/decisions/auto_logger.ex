@@ -1,5 +1,5 @@
 defmodule Loomkin.Decisions.AutoLogger do
-  @moduledoc "Per-team GenServer that subscribes to team PubSub events and writes decision graph nodes."
+  @moduledoc "Per-team GenServer that subscribes to team signals and writes decision graph nodes."
 
   use GenServer
 
@@ -7,8 +7,6 @@ defmodule Loomkin.Decisions.AutoLogger do
 
   alias Loomkin.Decisions.Graph
   alias Loomkin.Teams.Tasks
-
-  @pubsub Loomkin.PubSub
 
   # --- Public API ---
 
@@ -27,13 +25,14 @@ defmodule Loomkin.Decisions.AutoLogger do
   def init(opts) do
     team_id = Keyword.fetch!(opts, :team_id)
 
-    Phoenix.PubSub.subscribe(@pubsub, "team:#{team_id}")
-    Phoenix.PubSub.subscribe(@pubsub, "team:#{team_id}:tasks")
+    Loomkin.Signals.subscribe("agent.status")
+    Loomkin.Signals.subscribe("team.task.*")
+    Loomkin.Signals.subscribe("context.keeper.created")
+    Loomkin.Signals.subscribe("context.offloaded")
 
     state = %{
       team_id: team_id,
       seen_agents: MapSet.new(),
-      # Map of task_id => node_id for linking task action → outcome edges
       task_nodes: %{}
     }
 
@@ -41,9 +40,20 @@ defmodule Loomkin.Decisions.AutoLogger do
     {:ok, state}
   end
 
-  # Agent joins (first time only)
   @impl true
-  def handle_info({:agent_status, name, :working}, state) do
+  def handle_info({:signal, %Jido.Signal{} = sig}, state) do
+    if signal_for_team?(sig, state.team_id) do
+      handle_info(sig, state)
+    else
+      {:noreply, state}
+    end
+  end
+
+  # Agent joins (first time only)
+  def handle_info(
+        %Jido.Signal{type: "agent.status", data: %{agent_name: name, status: :working}},
+        state
+      ) do
     if MapSet.member?(state.seen_agents, name) do
       {:noreply, state}
     else
@@ -59,18 +69,20 @@ defmodule Loomkin.Decisions.AutoLogger do
     end
   end
 
-  # Ignore subsequent agent_status events
-  def handle_info({:agent_status, _name, _status}, state) do
+  # Ignore other agent status events
+  def handle_info(%Jido.Signal{type: "agent.status"}, state) do
     {:noreply, state}
   end
 
   # Task assigned
-  def handle_info({:task_assigned, task_id, agent_name}, state) do
+  def handle_info(%Jido.Signal{type: "team.task.assigned", data: data}, state) do
+    task_id = data.task_id
+    agent_name = data.agent_name
     title = task_title(task_id)
 
     case log_node(state, %{
            node_type: :action,
-           title: "Task assigned: #{title} → #{agent_name}",
+           title: "Task assigned: #{title} -> #{agent_name}",
            agent_name: to_string(agent_name),
            metadata: base_metadata(state, %{"task_id" => task_id})
          }) do
@@ -84,7 +96,9 @@ defmodule Loomkin.Decisions.AutoLogger do
   end
 
   # Task completed
-  def handle_info({:task_completed, task_id, owner, _result}, state) do
+  def handle_info(%Jido.Signal{type: "team.task.completed", data: data}, state) do
+    task_id = data.task_id
+    owner = data.owner
     title = task_title(task_id)
 
     case log_node(state, %{
@@ -94,7 +108,6 @@ defmodule Loomkin.Decisions.AutoLogger do
            metadata: base_metadata(state, %{"task_id" => task_id})
          }) do
       {:ok, node} ->
-        # Edge from task action node → outcome
         if parent_id = state.task_nodes[task_id] do
           Graph.add_edge(parent_id, node.id, :leads_to)
         end
@@ -108,12 +121,15 @@ defmodule Loomkin.Decisions.AutoLogger do
   end
 
   # Task failed
-  def handle_info({:task_failed, task_id, owner, reason}, state) do
+  def handle_info(%Jido.Signal{type: "team.task.failed", data: data}, state) do
+    task_id = data.task_id
+    owner = data.owner
+    reason = Map.get(data, :reason, "unknown")
     title = task_title(task_id)
 
     case log_node(state, %{
            node_type: :outcome,
-           title: "Failed: #{title} — #{truncate(inspect(reason), 120)}",
+           title: "Failed: #{title} -- #{truncate(inspect(reason), 120)}",
            agent_name: to_string(owner),
            metadata: base_metadata(state, %{"task_id" => task_id})
          }) do
@@ -131,23 +147,23 @@ defmodule Loomkin.Decisions.AutoLogger do
   end
 
   # Keeper created (context offloaded)
-  def handle_info({:keeper_created, %{id: keeper_id, topic: topic} = info}, state) do
+  def handle_info(%Jido.Signal{type: "context.keeper.created", data: data}, state) do
     log_node(state, %{
       node_type: :observation,
-      title: "Context offloaded: #{topic}",
-      agent_name: to_string(Map.get(info, :source, "unknown")),
-      metadata: base_metadata(state, %{"keeper_id" => keeper_id})
+      title: "Context offloaded: #{data.topic}",
+      agent_name: to_string(data.source),
+      metadata: base_metadata(state, %{"keeper_id" => data.id})
     })
 
     {:noreply, state}
   end
 
-  # Skip context_offloaded (redundant with keeper_created)
-  def handle_info({:context_offloaded, _name, _payload}, state) do
+  # Skip context offloaded (redundant with keeper_created)
+  def handle_info(%Jido.Signal{type: "context.offloaded"}, state) do
     {:noreply, state}
   end
 
-  # Catch-all for other PubSub messages
+  # Catch-all
   def handle_info(_msg, state) do
     {:noreply, state}
   end
@@ -162,7 +178,6 @@ defmodule Loomkin.Decisions.AutoLogger do
 
     case Graph.add_node(attrs) do
       {:ok, node} = result ->
-        # Try to edge from the active goal (scoped to this team)
         link_to_active_goal(node, state.team_id)
         result
 
@@ -173,8 +188,6 @@ defmodule Loomkin.Decisions.AutoLogger do
   end
 
   defp link_to_active_goal(node, team_id) do
-    # Only link action and observation nodes to the active goal
-    # Outcome nodes get linked to their parent task action instead
     if node.node_type in [:action, :observation] do
       case Graph.list_nodes(node_type: :goal, status: :active, team_id: team_id) do
         [] ->
@@ -200,4 +213,12 @@ defmodule Loomkin.Decisions.AutoLogger do
 
   defp truncate(str, max) when byte_size(str) <= max, do: str
   defp truncate(str, max), do: String.slice(str, 0, max) <> "..."
+
+  defp signal_for_team?(sig, team_id) do
+    signal_team_id =
+      get_in(sig.data, [:team_id]) ||
+        get_in(sig, [Access.key(:extensions, %{}), "loomkin", "team_id"])
+
+    signal_team_id == nil or signal_team_id == team_id
+  end
 end

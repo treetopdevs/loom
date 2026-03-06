@@ -73,11 +73,13 @@ defmodule Loomkin.Tools.TeamSpawn do
     any_spawned = Enum.any?(spawn_results, &match?({:ok, _, _}, &1))
 
     if parent_team_id && any_spawned do
-      Phoenix.PubSub.broadcast(
-        Loomkin.PubSub,
-        "team:#{parent_team_id}",
-        {:child_team_created, team_id}
-      )
+      signal =
+        Loomkin.Signals.Team.ChildTeamCreated.new!(%{
+          team_id: team_id,
+          parent_team_id: parent_team_id
+        })
+
+      Loomkin.Signals.publish(signal)
     end
 
     lines =

@@ -55,7 +55,18 @@ defmodule Loomkin.AgentLoop do
     config = build_config(opts)
     # Initialize read-file tracker for read-before-write enforcement
     Process.put(:loomkin_read_files, MapSet.new())
-    run_with_rate_limit_retry(messages, config, 0)
+
+    case config.reasoning_strategy do
+      :react ->
+        run_with_rate_limit_retry(messages, config, 0)
+
+      strategy when strategy in [:cot, :cod, :tot, :adaptive] ->
+        Loomkin.AgentLoop.Strategies.run(strategy, messages, config)
+
+      unknown ->
+        Logger.warning("Unknown reasoning strategy #{inspect(unknown)}, falling back to :react")
+        run_with_rate_limit_retry(messages, config, 0)
+    end
   end
 
   defp run_with_rate_limit_retry(messages, config, attempt) do
@@ -105,6 +116,7 @@ defmodule Loomkin.AgentLoop do
       session_id: Keyword.get(opts, :session_id),
       agent_name: Keyword.get(opts, :agent_name),
       team_id: Keyword.get(opts, :team_id),
+      reasoning_strategy: Keyword.get(opts, :reasoning_strategy, :react),
       max_iterations: Keyword.get(opts, :max_iterations, @max_iterations),
       on_event: Keyword.get(opts, :on_event, fn _name, _payload -> :ok end),
       on_tool_execute: Keyword.get(opts, :on_tool_execute),

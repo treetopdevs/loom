@@ -19,6 +19,15 @@ defmodule Loomkin.Teams.ConflictDetectorTest do
     %{team_id: team_id}
   end
 
+  defp tool_executing_signal(agent_name, team_id, tool_name, tool_target) do
+    sig = Loomkin.Signals.Agent.ToolExecuting.new!(%{agent_name: agent_name, team_id: team_id})
+
+    %{
+      sig
+      | data: Map.merge(sig.data, %{payload: %{tool_name: tool_name, tool_target: tool_target}})
+    }
+  end
+
   describe "extract_intent/1" do
     test "detects add intent" do
       assert ConflictDetector.extract_intent("Add a new module for authentication") == "add"
@@ -106,70 +115,53 @@ defmodule Loomkin.Teams.ConflictDetectorTest do
 
   describe "GenServer file conflict detection" do
     test "detects when two agents edit the same file", %{team_id: team_id} do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{team_id}")
+      Loomkin.Signals.subscribe("collaboration.**")
 
-      # Simulate tool_complete events from two different agents
       pid = find_conflict_detector(team_id)
 
-      send(
-        pid,
-        {:tool_executing, "coder-1", %{tool_name: "file_edit", tool_target: "lib/foo.ex"}}
-      )
+      send(pid, {:signal, tool_executing_signal("coder-1", team_id, "file_edit", "lib/foo.ex")})
+      send(pid, {:signal, tool_executing_signal("coder-2", team_id, "file_edit", "lib/foo.ex")})
 
-      send(
-        pid,
-        {:tool_executing, "coder-2", %{tool_name: "file_edit", tool_target: "lib/foo.ex"}}
-      )
-
-      assert_receive {:conflict_detected,
-                      %{type: :file_conflict, agent_a: _, agent_b: _, description: desc}},
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{
+                          message:
+                            {:conflict_detected, %{type: :file_conflict, description: desc}}
+                        }
+                      }},
                      1_000
 
       assert desc =~ "lib/foo.ex"
     end
 
     test "no conflict when same agent edits same file twice", %{team_id: team_id} do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{team_id}")
+      Loomkin.Signals.subscribe("collaboration.**")
 
       pid = find_conflict_detector(team_id)
 
-      send(
-        pid,
-        {:tool_executing, "coder-1", %{tool_name: "file_edit", tool_target: "lib/foo.ex"}}
-      )
+      send(pid, {:signal, tool_executing_signal("coder-1", team_id, "file_edit", "lib/foo.ex")})
+      send(pid, {:signal, tool_executing_signal("coder-1", team_id, "file_edit", "lib/foo.ex")})
 
-      send(
-        pid,
-        {:tool_executing, "coder-1", %{tool_name: "file_edit", tool_target: "lib/foo.ex"}}
-      )
-
-      refute_receive {:conflict_detected, _}, 200
+      refute_receive {:signal, %Jido.Signal{data: %{message: {:conflict_detected, _}}}}, 200
     end
 
     test "no conflict when agents edit different files", %{team_id: team_id} do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{team_id}")
+      Loomkin.Signals.subscribe("collaboration.**")
 
       pid = find_conflict_detector(team_id)
 
-      send(
-        pid,
-        {:tool_executing, "coder-1", %{tool_name: "file_edit", tool_target: "lib/foo.ex"}}
-      )
+      send(pid, {:signal, tool_executing_signal("coder-1", team_id, "file_edit", "lib/foo.ex")})
+      send(pid, {:signal, tool_executing_signal("coder-2", team_id, "file_edit", "lib/bar.ex")})
 
-      send(
-        pid,
-        {:tool_executing, "coder-2", %{tool_name: "file_edit", tool_target: "lib/bar.ex"}}
-      )
-
-      refute_receive {:conflict_detected, _}, 200
+      refute_receive {:signal, %Jido.Signal{data: %{message: {:conflict_detected, _}}}}, 200
     end
   end
 
   describe "GenServer decision conflict detection" do
     test "detects contradictory decisions on same topic", %{team_id: team_id} do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{team_id}")
+      Loomkin.Signals.subscribe("collaboration.**")
 
-      # Create two contradictory decision nodes
       {:ok, _node_a} =
         Loomkin.Decisions.Graph.add_node(%{
           node_type: :decision,
@@ -188,11 +180,28 @@ defmodule Loomkin.Teams.ConflictDetectorTest do
           metadata: %{"team_id" => team_id, "chosen" => "mongodb"}
         })
 
-      # Trigger conflict check
+      # Send a decision.logged signal to trigger conflict check
       pid = find_conflict_detector(team_id)
-      send(pid, {:decision_logged, node_b.id, "coder-2"})
 
-      assert_receive {:conflict_detected, %{type: :decision_conflict, description: desc}}, 1_000
+      sig =
+        Loomkin.Signals.Decision.DecisionLogged.new!(%{
+          node_id: node_b.id,
+          agent_name: "coder-2",
+          team_id: team_id
+        })
+
+      send(pid, {:signal, sig})
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{
+                          message:
+                            {:conflict_detected, %{type: :decision_conflict, description: desc}}
+                        }
+                      }},
+                     1_000
+
       assert desc =~ "Contradictory decisions"
     end
   end

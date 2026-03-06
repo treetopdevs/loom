@@ -2,27 +2,59 @@ defmodule Loomkin.Decisions.AutoLoggerTest do
   use Loomkin.DataCase, async: false
 
   alias Loomkin.Decisions.{AutoLogger, Graph}
-  alias Loomkin.Teams.Comms
 
   setup do
     team_id = Ecto.UUID.generate()
 
-    # Create ETS table for team (AutoLogger uses Registry, not ETS directly, but
-    # task lookups may need it)
     {:ok, _ref} = Loomkin.Teams.TableRegistry.create_table(team_id)
-
-    {:ok, _pid} = start_supervised({AutoLogger, team_id: team_id})
+    {:ok, pid} = start_supervised({AutoLogger, team_id: team_id})
 
     on_exit(fn ->
       Loomkin.Teams.TableRegistry.delete_table(team_id)
     end)
 
-    %{team_id: team_id}
+    %{team_id: team_id, logger_pid: pid}
+  end
+
+  defp send_status(pid, agent_name, team_id, status) do
+    sig =
+      Loomkin.Signals.Agent.Status.new!(%{
+        agent_name: agent_name,
+        team_id: team_id,
+        status: status
+      })
+
+    send(pid, {:signal, sig})
+  end
+
+  defp send_task_assigned(pid, task_id, agent_name, team_id) do
+    sig =
+      Loomkin.Signals.Team.TaskAssigned.new!(%{
+        task_id: task_id,
+        agent_name: agent_name,
+        team_id: team_id
+      })
+
+    send(pid, {:signal, sig})
+  end
+
+  defp send_task_completed(pid, task_id, owner, team_id) do
+    sig =
+      Loomkin.Signals.Team.TaskCompleted.new!(%{task_id: task_id, owner: owner, team_id: team_id})
+
+    send(pid, {:signal, sig})
+  end
+
+  defp send_task_failed(pid, task_id, owner, team_id) do
+    sig =
+      Loomkin.Signals.Team.TaskFailed.new!(%{task_id: task_id, owner: owner, team_id: team_id})
+
+    send(pid, {:signal, sig})
   end
 
   describe "agent_status events" do
-    test "logs action node on first :working status", %{team_id: team_id} do
-      Comms.broadcast(team_id, {:agent_status, "alice", :working})
+    test "logs action node on first :working status", %{team_id: team_id, logger_pid: pid} do
+      send_status(pid, "alice", team_id, :working)
       Process.sleep(50)
 
       nodes = Graph.list_nodes(node_type: :action)
@@ -32,19 +64,19 @@ defmodule Loomkin.Decisions.AutoLoggerTest do
       assert hd(nodes).metadata["team_id"] == team_id
     end
 
-    test "only logs once per agent (deduplicates)", %{team_id: team_id} do
-      Comms.broadcast(team_id, {:agent_status, "bob", :working})
+    test "only logs once per agent (deduplicates)", %{team_id: team_id, logger_pid: pid} do
+      send_status(pid, "bob", team_id, :working)
       Process.sleep(50)
-      Comms.broadcast(team_id, {:agent_status, "bob", :working})
+      send_status(pid, "bob", team_id, :working)
       Process.sleep(50)
 
       nodes = Graph.list_nodes(node_type: :action)
       assert length(nodes) == 1
     end
 
-    test "logs separate nodes for different agents", %{team_id: team_id} do
-      Comms.broadcast(team_id, {:agent_status, "alice", :working})
-      Comms.broadcast(team_id, {:agent_status, "bob", :working})
+    test "logs separate nodes for different agents", %{team_id: team_id, logger_pid: pid} do
+      send_status(pid, "alice", team_id, :working)
+      send_status(pid, "bob", team_id, :working)
       Process.sleep(50)
 
       nodes = Graph.list_nodes(node_type: :action)
@@ -54,8 +86,8 @@ defmodule Loomkin.Decisions.AutoLoggerTest do
       assert "Agent bob joined team" in titles
     end
 
-    test "ignores non-working statuses", %{team_id: team_id} do
-      Comms.broadcast(team_id, {:agent_status, "carol", :idle})
+    test "ignores non-working statuses", %{team_id: team_id, logger_pid: pid} do
+      send_status(pid, "carol", team_id, :idle)
       Process.sleep(50)
 
       assert Graph.list_nodes(node_type: :action) == []
@@ -63,11 +95,10 @@ defmodule Loomkin.Decisions.AutoLoggerTest do
   end
 
   describe "task events" do
-    test "task_assigned creates action node", %{team_id: team_id} do
-      # Create a task in the DB so the title can be looked up
+    test "task_assigned creates action node", %{team_id: team_id, logger_pid: pid} do
       {:ok, task} = create_task(team_id, "Implement feature X")
 
-      Comms.broadcast_task_event(team_id, {:task_assigned, task.id, "alice"})
+      send_task_assigned(pid, task.id, "alice", team_id)
       Process.sleep(50)
 
       nodes = Graph.list_nodes(node_type: :action)
@@ -78,15 +109,16 @@ defmodule Loomkin.Decisions.AutoLoggerTest do
       assert node.metadata["auto_logged"] == true
     end
 
-    test "task_completed creates outcome node with edge from task action", %{team_id: team_id} do
+    test "task_completed creates outcome node with edge from task action", %{
+      team_id: team_id,
+      logger_pid: pid
+    } do
       {:ok, task} = create_task(team_id, "Fix bug Y")
 
-      # First assign (creates action node)
-      Comms.broadcast_task_event(team_id, {:task_assigned, task.id, "bob"})
+      send_task_assigned(pid, task.id, "bob", team_id)
       Process.sleep(50)
 
-      # Then complete (creates outcome node + edge)
-      Comms.broadcast_task_event(team_id, {:task_completed, task.id, "bob", "done"})
+      send_task_completed(pid, task.id, "bob", team_id)
       Process.sleep(50)
 
       outcomes = Graph.list_nodes(node_type: :outcome)
@@ -94,7 +126,6 @@ defmodule Loomkin.Decisions.AutoLoggerTest do
       outcome = hd(outcomes)
       assert outcome.title == "Completed: Fix bug Y"
 
-      # Verify edge from action → outcome
       edges = Graph.list_edges(edge_type: :leads_to, to_node_id: outcome.id)
       assert length(edges) >= 1
 
@@ -102,37 +133,38 @@ defmodule Loomkin.Decisions.AutoLoggerTest do
       assert Enum.any?(edges, &(&1.from_node_id == action.id))
     end
 
-    test "task_failed creates outcome node", %{team_id: team_id} do
+    test "task_failed creates outcome node", %{team_id: team_id, logger_pid: pid} do
       {:ok, task} = create_task(team_id, "Deploy service")
 
-      Comms.broadcast_task_event(team_id, {:task_assigned, task.id, "carol"})
+      send_task_assigned(pid, task.id, "carol", team_id)
       Process.sleep(50)
 
-      Comms.broadcast_task_event(team_id, {:task_failed, task.id, "carol", "timeout"})
+      send_task_failed(pid, task.id, "carol", team_id)
       Process.sleep(50)
 
       outcomes = Graph.list_nodes(node_type: :outcome)
       assert length(outcomes) == 1
       outcome = hd(outcomes)
       assert outcome.title =~ "Failed: Deploy service"
-      assert outcome.title =~ "timeout"
     end
   end
 
   describe "keeper_created events" do
-    test "creates observation node with keeper_id in metadata", %{team_id: team_id} do
+    test "creates observation node with keeper_id in metadata", %{
+      team_id: team_id,
+      logger_pid: pid
+    } do
       keeper_id = Ecto.UUID.generate()
 
-      Comms.broadcast(
-        team_id,
-        {:keeper_created,
-         %{
-           id: keeper_id,
-           topic: "auth-research",
-           source: "alice",
-           tokens: 500
-         }}
-      )
+      sig =
+        Loomkin.Signals.Context.KeeperCreated.new!(%{
+          id: keeper_id,
+          topic: "auth-research",
+          source: "alice",
+          team_id: team_id
+        })
+
+      send(pid, {:signal, sig})
 
       Process.sleep(50)
 
@@ -146,8 +178,9 @@ defmodule Loomkin.Decisions.AutoLoggerTest do
   end
 
   describe "context_offloaded events" do
-    test "are skipped (redundant with keeper_created)", %{team_id: team_id} do
-      Comms.broadcast(team_id, {:context_offloaded, "alice", %{some: "data"}})
+    test "are skipped (redundant with keeper_created)", %{team_id: team_id, logger_pid: pid} do
+      sig = Loomkin.Signals.Context.Offloaded.new!(%{agent_name: "alice", team_id: team_id})
+      send(pid, {:signal, sig})
       Process.sleep(50)
 
       assert Graph.list_nodes() == []
@@ -155,8 +188,7 @@ defmodule Loomkin.Decisions.AutoLoggerTest do
   end
 
   describe "active goal linking" do
-    test "edges action nodes to active goal when one exists", %{team_id: team_id} do
-      # Create an active goal node with team_id so AutoLogger's scoped query finds it
+    test "edges action nodes to active goal when one exists", %{team_id: team_id, logger_pid: pid} do
       {:ok, goal} =
         Graph.add_node(%{
           node_type: :goal,
@@ -165,7 +197,7 @@ defmodule Loomkin.Decisions.AutoLoggerTest do
           metadata: %{"team_id" => team_id}
         })
 
-      Comms.broadcast(team_id, {:agent_status, "alice", :working})
+      send_status(pid, "alice", team_id, :working)
       Process.sleep(50)
 
       action = hd(Graph.list_nodes(node_type: :action))

@@ -135,12 +135,17 @@ defmodule Loomkin.Teams.NestedTeamsTest do
     test "notifies parent spawning agent on sub-team dissolution", %{parent_id: parent_id} do
       {:ok, sub_id} = Manager.create_sub_team(parent_id, "lead-agent", name: "notify-child")
 
-      # Subscribe to the parent team's agent topic to catch the notification
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{parent_id}:agent:lead-agent")
+      # Subscribe to collaboration signals to catch the notification
+      Loomkin.Signals.subscribe("collaboration.**")
 
       Manager.dissolve_team(sub_id)
 
-      assert_receive {:sub_team_completed, ^sub_id}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{target: "lead-agent", message: {:sub_team_completed, ^sub_id}}
+                      }},
+                     500
     end
   end
 

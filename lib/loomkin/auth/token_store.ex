@@ -32,7 +32,7 @@ defmodule Loomkin.Auth.TokenStore do
   import Ecto.Query
 
   @table :loomkin_auth_tokens
-  @pubsub_topic "auth:status"
+  # @pubsub_topic removed — auth events now go through Loomkin.Signals
   @refresh_buffer_seconds 300
   @max_refresh_retries 3
   @initial_retry_delay_ms 15_000
@@ -444,7 +444,23 @@ defmodule Loomkin.Auth.TokenStore do
     DateTime.compare(expires_at, DateTime.utc_now()) != :gt
   end
 
-  defp broadcast(message) do
-    Phoenix.PubSub.broadcast(Loomkin.PubSub, @pubsub_topic, message)
+  defp broadcast({:auth_connected, provider}) do
+    signal = Loomkin.Signals.System.AuthConnected.new!(%{provider: provider})
+    Loomkin.Signals.publish(signal)
+  end
+
+  defp broadcast({:auth_disconnected, provider}) do
+    signal = Loomkin.Signals.System.AuthDisconnected.new!(%{provider: provider})
+    Loomkin.Signals.publish(signal)
+  end
+
+  defp broadcast({:auth_refreshed, provider}) do
+    signal = Loomkin.Signals.System.AuthRefreshed.new!(%{provider: provider})
+    Loomkin.Signals.publish(signal)
+  end
+
+  defp broadcast({:auth_refresh_failed, provider, _reason}) do
+    signal = Loomkin.Signals.System.AuthRefreshFailed.new!(%{provider: provider})
+    Loomkin.Signals.publish(signal)
   end
 end

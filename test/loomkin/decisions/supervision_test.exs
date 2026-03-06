@@ -106,8 +106,15 @@ defmodule Loomkin.Decisions.SupervisionTest do
 
   describe "AutoLogger receives events after team creation" do
     test "logs agent_status events automatically", %{team_id: team_id} do
-      # Broadcast an event — AutoLogger should create a graph node
-      Loomkin.Teams.Comms.broadcast(team_id, {:agent_status, "test-agent", :working})
+      # Emit a proper agent.status signal — AutoLogger subscribes to "agent.status"
+      signal =
+        Loomkin.Signals.Agent.Status.new!(%{
+          agent_name: "test-agent",
+          team_id: team_id,
+          status: :working
+        })
+
+      Loomkin.Signals.publish(signal)
       Process.sleep(50)
 
       nodes = Loomkin.Decisions.Graph.list_nodes(node_type: :action)

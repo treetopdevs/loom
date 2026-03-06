@@ -1,6 +1,6 @@
 defmodule Loomkin.Channels.Severity do
   @moduledoc """
-  Classifies PubSub events into severity levels for channel notification filtering.
+  Classifies Signal events into severity levels for channel notification filtering.
 
   Severity levels:
   - `:urgent` — requires immediate attention (ask_user, errors, team dissolved, permission requests)
@@ -11,41 +11,37 @@ defmodule Loomkin.Channels.Severity do
 
   @type severity :: :urgent | :action | :info | :noise
 
-  @doc "Classify a PubSub event tuple into a severity level."
+  @doc "Classify a signal or event into a severity level."
   @spec classify(term()) :: severity()
-  def classify({:ask_user_question, _}), do: :urgent
-  def classify({:agent_error, _}), do: :urgent
-  def classify(:team_dissolved), do: :urgent
-  def classify({:permission_request, _, _, _, _}), do: :urgent
 
-  def classify({:new_message, _}), do: :action
-  def classify({:collab_event, %{type: :conflict_detected}}), do: :action
-  def classify({:collab_event, %{type: :consensus_reached}}), do: :action
-  def classify({:collab_event, %{type: :task_completed}}), do: :action
+  # Urgent signals
+  def classify(%Jido.Signal{type: "team.ask_user.question"}), do: :urgent
+  def classify(%Jido.Signal{type: "agent.error"}), do: :urgent
+  def classify(%Jido.Signal{type: "team.dissolved"}), do: :urgent
+  def classify(%Jido.Signal{type: "team.permission.request"}), do: :urgent
+  def classify(%Jido.Signal{type: "session.permission.request"}), do: :urgent
+  def classify(%Jido.Signal{type: "session.cancelled"}), do: :urgent
+  def classify(%Jido.Signal{type: "session.llm.error"}), do: :urgent
+  def classify(%Jido.Signal{type: "team.budget.warning"}), do: :urgent
 
-  def classify({:collab_event, _}), do: :info
-  def classify({:context_update, _}), do: :info
-  def classify({:channel_message, _}), do: :info
+  # Action signals
+  def classify(%Jido.Signal{type: "session.message.new"}), do: :action
+  def classify(%Jido.Signal{type: "team.conflict.detected"}), do: :action
+  def classify(%Jido.Signal{type: "agent.escalation"}), do: :action
 
-  # Session events
-  def classify({:session_cancelled, _}), do: :urgent
-  def classify({:llm_error, _, _}), do: :urgent
-  def classify({:session_status, _, _}), do: :info
-  def classify({:team_available, _, _}), do: :info
-  def classify({:child_team_available, _, _}), do: :info
-  def classify({:new_message, _, _}), do: :action
-  def classify({:stream_start, _}), do: :noise
-  def classify({:stream_end, _}), do: :noise
+  # Info signals
+  def classify(%Jido.Signal{type: "collaboration." <> _}), do: :info
+  def classify(%Jido.Signal{type: "context." <> _}), do: :info
+  def classify(%Jido.Signal{type: "channel." <> _}), do: :info
+  def classify(%Jido.Signal{type: "session.status.changed"}), do: :info
+  def classify(%Jido.Signal{type: "session.team.available"}), do: :info
+  def classify(%Jido.Signal{type: "session.child_team.available"}), do: :info
+  def classify(%Jido.Signal{type: "team.llm.stop"}), do: :info
 
-  # Telemetry events
-  def classify({:team_budget_warning, _}), do: :urgent
-  def classify({:team_escalation, _}), do: :action
-  def classify({:team_llm_stop, _}), do: :info
-
-  def classify({:stream_delta, _}), do: :noise
-  def classify({:stream_delta, _, _}), do: :noise
-  def classify({:tool_executing, _}), do: :noise
-  def classify({:usage, _}), do: :noise
+  # Noise signals
+  def classify(%Jido.Signal{type: "agent.stream." <> _}), do: :noise
+  def classify(%Jido.Signal{type: "agent.tool.executing"}), do: :noise
+  def classify(%Jido.Signal{type: "agent.usage"}), do: :noise
 
   def classify(_), do: :info
 

@@ -21,104 +21,139 @@ defmodule Loomkin.Teams.CrossTeamTest do
 
   describe "cross-team propagation" do
     test "insight discovery propagates to parent team", %{
-      parent_id: parent_id,
+      parent_id: _parent_id,
       child_a: child_a
     } do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{parent_id}:context")
+      Loomkin.Signals.subscribe("context.**")
 
       payload = %{from: "researcher", type: "insight", content: "Key finding about auth"}
       Comms.broadcast_context(child_a, payload)
 
-      assert_receive {:context_update, "researcher", propagated}
+      # First we receive the child's own broadcast
+      assert_receive {:signal, %Jido.Signal{type: "context.update"}}, 500
+      # Then we receive the propagated signal to parent
+      assert_receive {:signal,
+                      %Jido.Signal{type: "context.update", data: %{payload: propagated}}},
+                     500
+
       assert propagated.source_team == child_a
       assert propagated.content == "Key finding about auth"
       assert propagated.type == "insight"
     end
 
     test "blocker discovery propagates to parent team", %{
-      parent_id: parent_id,
+      parent_id: _parent_id,
       child_a: child_a
     } do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{parent_id}:context")
+      Loomkin.Signals.subscribe("context.**")
 
       payload = %{from: "coder", type: "blocker", content: "Cannot proceed: missing dependency"}
       Comms.broadcast_context(child_a, payload)
 
-      assert_receive {:context_update, "coder", propagated}
+      assert_receive {:signal, %Jido.Signal{type: "context.update"}}, 500
+
+      assert_receive {:signal,
+                      %Jido.Signal{type: "context.update", data: %{payload: propagated}}},
+                     500
+
       assert propagated.source_team == child_a
       assert propagated.type == "blocker"
     end
 
     test "discovery type now propagates to parent team", %{
-      parent_id: parent_id,
+      parent_id: _parent_id,
       child_a: child_a
     } do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{parent_id}:context")
+      Loomkin.Signals.subscribe("context.**")
 
       payload = %{from: "researcher", type: "discovery", content: "Found something"}
       Comms.broadcast_context(child_a, payload)
 
-      assert_receive {:context_update, "researcher", propagated}
+      assert_receive {:signal, %Jido.Signal{type: "context.update"}}, 500
+
+      assert_receive {:signal,
+                      %Jido.Signal{type: "context.update", data: %{payload: propagated}}},
+                     500
+
       assert propagated.source_team == child_a
       assert propagated.type == "discovery"
     end
 
     test "warning type propagates to parent team", %{
-      parent_id: parent_id,
+      parent_id: _parent_id,
       child_a: child_a
     } do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{parent_id}:context")
+      Loomkin.Signals.subscribe("context.**")
 
       payload = %{from: "coder", type: "warning", content: "Deprecated API usage"}
       Comms.broadcast_context(child_a, payload)
 
-      assert_receive {:context_update, "coder", propagated}
+      assert_receive {:signal, %Jido.Signal{type: "context.update"}}, 500
+
+      assert_receive {:signal,
+                      %Jido.Signal{type: "context.update", data: %{payload: propagated}}},
+                     500
+
       assert propagated.source_team == child_a
       assert propagated.type == "warning"
     end
 
     test "progress discovery does NOT propagate to parent team", %{
-      parent_id: parent_id,
+      parent_id: _parent_id,
       child_a: child_a
     } do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{parent_id}:context")
+      Loomkin.Signals.subscribe("context.**")
 
       payload = %{from: "coder", type: "progress", content: "Working on task 3"}
       Comms.broadcast_context(child_a, payload)
 
-      refute_receive {:context_update, "coder", _}, 100
+      # Should receive the child's own broadcast but NOT a propagated one
+      assert_receive {:signal, %Jido.Signal{type: "context.update"}}, 500
+
+      refute_receive {:signal,
+                      %Jido.Signal{type: "context.update", data: %{payload: %{source_team: _}}}},
+                     100
     end
 
     test "propagation can be disabled with propagate_up: false", %{
-      parent_id: parent_id,
+      parent_id: _parent_id,
       child_a: child_a
     } do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{parent_id}:context")
+      Loomkin.Signals.subscribe("context.**")
 
       payload = %{from: "researcher", type: "insight", content: "Key finding"}
       Comms.broadcast_context(child_a, payload, propagate_up: false)
 
-      refute_receive {:context_update, "researcher", _}, 100
+      # Should receive the child's own broadcast but NOT a propagated one
+      assert_receive {:signal, %Jido.Signal{type: "context.update"}}, 500
+
+      refute_receive {:signal,
+                      %Jido.Signal{type: "context.update", data: %{payload: %{source_team: _}}}},
+                     100
     end
 
     test "root team discovery does not crash (no parent)", %{parent_id: parent_id} do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{parent_id}:context")
+      Loomkin.Signals.subscribe("context.**")
 
       payload = %{from: "lead", type: "insight", content: "Top-level insight"}
       Comms.broadcast_context(parent_id, payload)
 
-      assert_receive {:context_update, "lead", received}
+      assert_receive {:signal, %Jido.Signal{type: "context.update", data: %{payload: received}}},
+                     500
+
       assert received.content == "Top-level insight"
       refute Map.has_key?(received, :source_team)
     end
 
     test "child team still receives its own broadcast", %{child_a: child_a} do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{child_a}:context")
+      Loomkin.Signals.subscribe("context.**")
 
       payload = %{from: "researcher", type: "insight", content: "Shared finding"}
       Comms.broadcast_context(child_a, payload)
 
-      assert_receive {:context_update, "researcher", received}
+      assert_receive {:signal, %Jido.Signal{type: "context.update", data: %{payload: received}}},
+                     500
+
       assert received.content == "Shared finding"
     end
   end
@@ -168,36 +203,56 @@ defmodule Loomkin.Teams.CrossTeamTest do
       child_a: _child_a,
       child_b: child_b
     } do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{child_b}:agent:researcher")
+      Loomkin.Signals.subscribe("collaboration.**")
 
       Comms.send_cross_team(child_b, "researcher", {:hello, "from child_a"})
 
-      assert_receive {:hello, "from child_a"}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{target: "researcher", message: {:hello, "from child_a"}}
+                      }},
+                     500
     end
 
     test "broadcast_to_children delivers to all child teams", %{
       parent_id: parent_id,
-      child_a: child_a,
-      child_b: child_b
+      child_a: _child_a,
+      child_b: _child_b
     } do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{child_a}")
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{child_b}")
+      Loomkin.Signals.subscribe("collaboration.**")
 
       Comms.broadcast_to_children(parent_id, {:announcement, "from parent"})
 
-      assert_receive {:announcement, "from parent"}
-      assert_receive {:announcement, "from parent"}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:announcement, "from parent"}}
+                      }},
+                     500
+
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:announcement, "from parent"}}
+                      }},
+                     500
     end
 
     test "broadcast_to_siblings delivers to sibling teams", %{
       child_a: child_a,
-      child_b: child_b
+      child_b: _child_b
     } do
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{child_b}")
+      Loomkin.Signals.subscribe("collaboration.**")
 
       Comms.broadcast_to_siblings(child_a, {:sibling_msg, "hello sibling"})
 
-      assert_receive {:sibling_msg, "hello sibling"}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{message: {:sibling_msg, "hello sibling"}}
+                      }},
+                     500
     end
 
     test "broadcast_to_siblings returns :ok for root team", %{parent_id: parent_id} do
@@ -243,35 +298,55 @@ defmodule Loomkin.Teams.CrossTeamTest do
     } do
       alias Loomkin.Teams.QueryRouter
 
-      # Subscribe to child_b to receive the question
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{child_b}")
-
-      # Subscribe to child_a agent to receive the answer
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{child_a}:agent:alice")
+      # Subscribe to signals to receive query broadcasts
+      Loomkin.Signals.subscribe("collaboration.**")
 
       {:ok, query_id} =
         QueryRouter.ask_cross_team(child_a, child_b, "alice", "What is the DB schema?")
 
-      # child_b should receive the broadcast query with source_team metadata
-      assert_receive {:query, ^query_id, "alice", "What is the DB schema?",
-                      %{source_team: ^child_a}}
+      # child_b should receive the broadcast query as a peer message with the query tuple
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{
+                          message:
+                            {:query, ^query_id, "alice", "What is the DB schema?",
+                             %{source_team: ^child_a}}
+                        }
+                      }},
+                     500
 
       # Answer the query — should route back to child_a
       :ok = QueryRouter.answer(query_id, "bob", "Users table with name and email columns")
 
-      assert_receive {:query_answer, ^query_id, "bob", "Users table with name and email columns",
-                      _enrichments}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{
+                          message:
+                            {:query_answer, ^query_id, "bob",
+                             "Users table with name and email columns", _enrichments}
+                        }
+                      }},
+                     500
     end
 
     test "ask_cross_team to specific agent", %{child_a: child_a, child_b: child_b} do
       alias Loomkin.Teams.QueryRouter
 
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{child_b}:agent:bob")
+      Loomkin.Signals.subscribe("collaboration.**")
 
       {:ok, query_id} =
         QueryRouter.ask_cross_team(child_a, child_b, "alice", "Help?", target: "bob")
 
-      assert_receive {:query, ^query_id, "alice", "Help?", %{source_team: ^child_a}}
+      assert_receive {:signal,
+                      %Jido.Signal{
+                        type: "collaboration.peer.message",
+                        data: %{
+                          message: {:query, ^query_id, "alice", "Help?", %{source_team: ^child_a}}
+                        }
+                      }},
+                     500
     end
   end
 end

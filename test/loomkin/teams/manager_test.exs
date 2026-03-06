@@ -146,11 +146,12 @@ defmodule Loomkin.Teams.ManagerTest do
 
     test "broadcasts :team_dissolved event" do
       {:ok, team_id} = Manager.create_team(name: "broadcast-test")
-      Phoenix.PubSub.subscribe(Loomkin.PubSub, "team:#{team_id}")
+      Loomkin.Signals.subscribe("team.**")
 
       Manager.dissolve_team(team_id)
 
-      assert_receive {:team_dissolved, ^team_id}
+      assert_receive {:signal, %Jido.Signal{type: "team.dissolved", data: %{team_id: ^team_id}}},
+                     500
     end
   end
 

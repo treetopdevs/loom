@@ -6,11 +6,19 @@ defmodule Loomkin.Decisions.Narrative do
   alias Loomkin.Schemas.DecisionEdge
   alias Loomkin.Schemas.DecisionNode
 
+  def for_session(nil), do: []
+
   def for_session(session_id) do
-    DecisionNode
-    |> where([n], n.session_id == ^session_id)
-    |> order_by([n], asc: n.inserted_at)
-    |> Repo.all()
+    case Ecto.UUID.cast(session_id) do
+      {:ok, _uuid} ->
+        DecisionNode
+        |> where([n], n.session_id == ^session_id)
+        |> order_by([n], asc: n.inserted_at)
+        |> Repo.all()
+
+      :error ->
+        []
+    end
   end
 
   def for_goal(goal_id) do
