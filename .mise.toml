@@ -2,3 +2,4 @@
 erlang = "27"
 elixir = "1.18.4-otp-27"
 node = "22"
+lefthook = "2.1.2"

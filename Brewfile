@@ -1,5 +1,4 @@
 brew "mise"
-brew "lefthook"
 brew "localias"
 brew "postgresql@17"
 cask "orbstack"

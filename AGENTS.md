@@ -1,4 +1,4 @@
-# Loomkin - Codex Instructions
+# Loomkin - AI Instructions
 
 Read and follow [CONTRIBUTING.md](CONTRIBUTING.md) for all conventions, including commit message format, build commands, and code style.
 
